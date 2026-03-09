@@ -36,6 +36,6 @@ int main() {
     test_non_empty();
     test_value_ranges();
 
-    std::cout << "All RadarDummy tests passed ✅\n";
+    std::cout << "All RadarDummy tests passed \n";
     return 0;
 }

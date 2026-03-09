@@ -11,8 +11,8 @@ OBJS := $(SRCS:.cpp=.o)
 # Executable name
 TARGET = data_fusion
 
-# Default target
-all: $(TARGET)
+# Default target - run tests first, then build
+all: test_all $(TARGET)
 
 
 # Link object files into executable
@@ -23,13 +23,30 @@ $(TARGET): $(OBJS)
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# Clean object files and executable
+# Clean object files and executables
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(TARGET) radar_tests imu_tests
 
+# Run all tests
+test_all: radar_test imu_test
 
-# Tests
+# Radar tests
+radar_test:
+	$(CXX) $(CXXFLAGS) \
+	tests/test_radar_dummy.cpp src/dummy/RadarDummy.cpp \
+	-o radar_tests
+	./radar_tests
+
+# IMU tests
+imu_test:
+	$(CXX) $(CXXFLAGS) \
+	tests/test_imu_dummy.cpp \
+	-o imu_tests
+	./imu_tests
+
+# Legacy test target (runs radar tests only)
 test:
 	$(CXX) $(CXXFLAGS) \
 	tests/test_radar_dummy.cpp src/dummy/RadarDummy.cpp \
 	-o radar_tests
+	./radar_tests
