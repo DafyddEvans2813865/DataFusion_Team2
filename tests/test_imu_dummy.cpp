@@ -7,24 +7,10 @@
 #include <cmath>
 #include <algorithm>
 
-struct IMUData {
-    long timeITOW;
-    double time;
-    double roll;
-    double pitch;
-    double xRate;
-    double yRate;
-    double zRate;
-    double xAccel;
-    double yAccel;
-    double zAccel;
-    int opMode;
-    int linAccSw;
-    int turnSw;
-};
+#include "../src/imu/IMU.h"
 
-std::vector<IMUData> parseCSV(const std::string& filename) {
-    std::vector<IMUData> data;
+std::vector<IMU> parseCSV(const std::string& filename) {
+    std::vector<IMU> data;
     std::ifstream file(filename);
     
     if (!file.is_open()) {
@@ -39,23 +25,26 @@ std::vector<IMUData> parseCSV(const std::string& filename) {
         
         std::istringstream iss(line);
         std::string token;
-        IMUData row;
+        long timeITOW;
+        double time, roll, pitch, xRate, yRate, zRate, xAccel, yAccel, zAccel;
+        int opMode, linAccSw, turnSw;
         
-        std::getline(iss, token, ','); row.timeITOW = std::stol(token);
-        std::getline(iss, token, ','); row.time = std::stod(token);
-        std::getline(iss, token, ','); row.roll = std::stod(token);
-        std::getline(iss, token, ','); row.pitch = std::stod(token);
-        std::getline(iss, token, ','); row.xRate = std::stod(token);
-        std::getline(iss, token, ','); row.yRate = std::stod(token);
-        std::getline(iss, token, ','); row.zRate = std::stod(token);
-        std::getline(iss, token, ','); row.xAccel = std::stod(token);
-        std::getline(iss, token, ','); row.yAccel = std::stod(token);
-        std::getline(iss, token, ','); row.zAccel = std::stod(token);
-        std::getline(iss, token, ','); row.opMode = std::stoi(token);
-        std::getline(iss, token, ','); row.linAccSw = std::stoi(token);
-        std::getline(iss, token, ','); row.turnSw = std::stoi(token);
+        std::getline(iss, token, ','); timeITOW = std::stol(token);
+        std::getline(iss, token, ','); time = std::stod(token);
+        std::getline(iss, token, ','); roll = std::stod(token);
+        std::getline(iss, token, ','); pitch = std::stod(token);
+        std::getline(iss, token, ','); xRate = std::stod(token);
+        std::getline(iss, token, ','); yRate = std::stod(token);
+        std::getline(iss, token, ','); zRate = std::stod(token);
+        std::getline(iss, token, ','); xAccel = std::stod(token);
+        std::getline(iss, token, ','); yAccel = std::stod(token);
+        std::getline(iss, token, ','); zAccel = std::stod(token);
+        std::getline(iss, token, ','); opMode = std::stoi(token);
+        std::getline(iss, token, ','); linAccSw = std::stoi(token);
+        std::getline(iss, token, ','); turnSw = std::stoi(token);
         
-        data.push_back(row);
+        data.push_back(IMU(timeITOW, time, roll, pitch, xRate, yRate, zRate,
+                          xAccel, yAccel, zAccel, opMode, linAccSw, turnSw));
     }
     
     return data;
