@@ -40,7 +40,7 @@ radar_test:
 # IMU tests
 imu_test:
 	$(CXX) $(CXXFLAGS) \
-	tests/test_imu_dummy.cpp \
+	tests/test_imu_dummy.cpp src/imu/IMU.cpp src/imu/IMUBuffer.cpp \
 	-o imu_tests
 	./imu_tests
 
