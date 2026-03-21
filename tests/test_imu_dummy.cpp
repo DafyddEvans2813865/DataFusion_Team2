@@ -51,17 +51,17 @@ std::vector<IMU> parseCSV(const std::string& filename) {
 }
 
 void test_csv_file_exists() {
-    std::ifstream file("tests/data/IMU_Test_Data.csv");
+    std::ifstream file("tests/data/example/IMU_Test_Data.csv");
     assert(file.good() && "CSV file should exist");
 }
 
 void test_csv_not_empty() {
-    auto data = parseCSV("tests/data/IMU_Test_Data.csv");
+    auto data = parseCSV("tests/data/example/IMU_Test_Data.csv");
     assert(data.size() > 0 && "CSV should contain data rows");
 }
 
 void test_csv_column_count() {
-    std::ifstream file("tests/data/IMU_Test_Data.csv");
+    std::ifstream file("tests/data/example/IMU_Test_Data.csv");
     std::string header;
     std::getline(file, header);
     
@@ -74,7 +74,7 @@ void test_csv_column_count() {
 }
 
 void test_csv_header_format() {
-    std::ifstream file("tests/data/IMU_Test_Data.csv");
+    std::ifstream file("tests/data/example/IMU_Test_Data.csv");
     std::string header;
     std::getline(file, header);
     
@@ -105,7 +105,7 @@ void test_csv_header_format() {
 // }
 
 void test_accelerometer_ranges() {
-    auto data = parseCSV("tests/data/IMU_Test_Data.csv");
+    auto data = parseCSV("tests/data/example/IMU_Test_Data.csv");
     
     double minZ = data[0].zAccel, maxZ = data[0].zAccel;
     double minX = data[0].xAccel, maxX = data[0].xAccel;
@@ -135,7 +135,7 @@ void test_accelerometer_ranges() {
 }
 
 void test_gyroscope_ranges() {
-    auto data = parseCSV("tests/data/IMU_Test_Data.csv");
+    auto data = parseCSV("tests/data/example/IMU_Test_Data.csv");
     
     for (const auto& row : data) {
         assert(row.xRate > -1000.0 && row.xRate < 1000.0 &&
@@ -148,7 +148,7 @@ void test_gyroscope_ranges() {
 }
 
 void test_orientation_ranges() {
-    auto data = parseCSV("tests/data/IMU_Test_Data.csv");
+    auto data = parseCSV("tests/data/example/IMU_Test_Data.csv");
     
     for (const auto& row : data) {
         assert(row.roll >= -1000.0 && row.roll <= 1000.0 &&
@@ -159,7 +159,7 @@ void test_orientation_ranges() {
 }
 
 void test_operation_mode_valid() {
-    auto data = parseCSV("tests/data/IMU_Test_Data.csv");
+    auto data = parseCSV("tests/data/example/IMU_Test_Data.csv");
     
     for (const auto& row : data) {
         assert(row.opMode >= 0 && row.opMode <= 15 &&
@@ -168,7 +168,7 @@ void test_operation_mode_valid() {
 }
 
 void test_switch_values_binary() {
-    auto data = parseCSV("tests/data/IMU_Test_Data.csv");
+    auto data = parseCSV("tests/data/example/IMU_Test_Data.csv");
     
     for (const auto& row : data) {
         assert((row.linAccSw == 0 || row.linAccSw == 1) &&
