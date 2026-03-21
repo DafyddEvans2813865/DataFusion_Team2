@@ -25,7 +25,7 @@ $(TARGET): $(OBJS)
 
 # Clean object files and executables
 clean:
-	rm -f $(OBJS) $(TARGET) radar_tests imu_tests
+	rm -f $(OBJS) $(TARGET) radar_tests imu_tests radar_parser
 
 # Run all tests
 test_all: radar_test imu_test
@@ -36,6 +36,13 @@ radar_test:
 	tests/test_radar_dummy.cpp src/dummy/RadarDummy.cpp \
 	-o radar_tests
 	./radar_tests
+
+# Radar parser test
+radar_parser:
+	$(CXX) $(CXXFLAGS) \
+	tests/test_radar_parser.cpp src/radar/RadarParser.cpp \
+	-o radar_parser
+	./radar_parser
 
 # IMU tests
 imu_test:
