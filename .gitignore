@@ -8,3 +8,7 @@ radar_tests
 
 # VS Code workspace settings
 .vscode/
+
+# Jupyter notebooks
+radar_to_bag.ipynb
+
