@@ -11,9 +11,8 @@ OBJS := $(SRCS:.cpp=.o)
 # Executable name
 TARGET = data_fusion
 
-# Default target - run tests first, then build
-all: test_all $(TARGET)
-
+# Default target - run C++ tests
+all: test_cpp
 
 # Link object files into executable
 $(TARGET): $(OBJS)
@@ -25,24 +24,19 @@ $(TARGET): $(OBJS)
 
 # Clean object files and executables
 clean:
-	rm -f $(OBJS) $(TARGET) radar_tests imu_tests radar_parser
+	rm -f $(OBJS) $(TARGET) radar_tests imu_tests
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -name "*.pyc" -delete
 
-# Run all tests
-test_all: radar_test imu_test
+# Run C++ tests only
+test_cpp: radar_test imu_test
 
-# Radar tests
+# Radar tests (C++ dummy)
 radar_test:
 	$(CXX) $(CXXFLAGS) \
 	tests/test_radar_dummy.cpp src/dummy/RadarDummy.cpp \
 	-o radar_tests
 	./radar_tests
-
-# Radar parser test
-radar_parser:
-	$(CXX) $(CXXFLAGS) \
-	tests/test_radar_parser.cpp src/radar/RadarParser.cpp \
-	-o radar_parser
-	./radar_parser
 
 # IMU tests
 imu_test:
@@ -51,9 +45,4 @@ imu_test:
 	-o imu_tests
 	./imu_tests
 
-# Legacy test target (runs radar tests only)
-test:
-	$(CXX) $(CXXFLAGS) \
-	tests/test_radar_dummy.cpp src/dummy/RadarDummy.cpp \
-	-o radar_tests
-	./radar_tests
+.PHONY: all clean test_cpp radar_test imu_test
