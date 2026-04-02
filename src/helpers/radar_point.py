@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 
 @dataclass
-class RadarDetection:
-    """Single radar detection point."""
+class RadarPoint:
+    """Single radar point point."""
     frame: int
     timestamp: int
     range: float
@@ -14,7 +14,6 @@ class RadarDetection:
     noise: int
 
     def to_dict(self) -> dict:
-        """Convert detection to dictionary."""
         return {
             'frame': self.frame,
             'timestamp': self.timestamp,

@@ -1,3 +1,3 @@
-from radar_parser import RadarDetection, RadarParser
+from radar_parser import RadarPoint, RadarParser
 
-__all__ = ['RadarDetection', 'RadarParser']
+__all__ = ['RadarPoint', 'RadarParser']

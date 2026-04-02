@@ -3,10 +3,10 @@
 
 #include <vector>
 #include <cstdint>
-#include "RadarDetection.h"
+#include "RadarPoint.h"
 
 struct RadarFrame
 {
     uint32_t timestamp;
-    std::vector<RadarDetection> detections;
+    std::vector<RadarPoint> points;
 };

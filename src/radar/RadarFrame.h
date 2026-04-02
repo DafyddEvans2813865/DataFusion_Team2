@@ -14,17 +14,17 @@ public:
     uint32_t getFrameNumber() const { return frame_number; }
     uint32_t getTimestamp() const { return timestamp; }
 
-    // Add a dynamic detection to this frame
-    void addDynamic(const Dynamic& detection) {
-        dynamic_points.push_back(detection);
+    // Add a dynamic point to this frame
+    void addDynamic(const Dynamic& point) {
+        dynamic_points.push_back(point);
     }
 
-    // Add a static detection to this frame
-    void addStatic(const Static& detection) {
-        static_points.push_back(detection);
+    // Add a static point to this frame
+    void addStatic(const Static& point) {
+        static_points.push_back(point);
     }
 
-    // Getters for detections
+    // Getters for points
     const std::vector<Dynamic>& getDynamicPoints() const {
         return dynamic_points;
     }
@@ -56,7 +56,7 @@ private:
     uint32_t frame_number;
     uint32_t timestamp;
 
-    // Detections in this frame
+    // points in this frame
     std::vector<Dynamic> dynamic_points;
     std::vector<Static> static_points;
 
