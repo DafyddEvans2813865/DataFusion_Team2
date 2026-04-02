@@ -1,14 +1,23 @@
 import numpy as np
-import rosbag
-from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import Header
-import sensor_msgs.point_cloud2 as pc2
-import rospy
 import struct
 from pathlib import Path
 from typing import List, Optional
 
-from radar_point import RadarPoint
+try:
+    import rosbag
+    from sensor_msgs.msg import PointCloud2
+    from std_msgs.msg import Header
+    import sensor_msgs.point_cloud2 as pc2
+    import rospy
+    HAS_ROS = True
+except ImportError:
+    HAS_ROS = False
+    PointCloud2 = None
+    Header = None
+    pc2 = None
+    rospy = None
+
+from radar.radar_point import RadarPoint
 
 
 class RadarParser:
@@ -46,7 +55,7 @@ class RadarParser:
                 idx += 20
 
         except FileNotFoundError:
-            print(f"✗ File not found: {hex_text_path}")
+            print(f" File not found: {hex_text_path}")
             return []
         except ValueError as e:
             print(f"Error parsing hex data: {e}")
@@ -56,6 +65,9 @@ class RadarParser:
         return points
 
     def to_point_cloud(self, points: List[RadarPoint], frame_id: str = "radar") -> PointCloud2:
+        if not HAS_ROS:
+            print(" ROS not installed. Cannot create PointCloud2 messages.")
+            return None
 
         if not points:
             return None
@@ -86,10 +98,14 @@ class RadarParser:
         return msg
 
     def to_bag(self, output_path: str, topic_name: str = "/radar/points") -> bool:
+        if not HAS_ROS:
+            print(" ROS not installed. Cannot create bag files.")
+            return False
+
         points = self.points
 
         if not points:
-            print("No points to write")
+            print(" No points to write")
             return False
 
         try:
@@ -114,10 +130,11 @@ class RadarParser:
                     if msg:
                         bag.write(topic_name, msg, t)
 
+            print(f" Bag file created: {output_path}")
             return True
 
         except Exception as e:
-            print(f"Error creating bag file: {e}")
+            print(f" Error creating bag file: {e}")
             return False
 
     def inspect_bag(self, bag_path: str) -> None:

@@ -1,48 +1,30 @@
-# Compiler
-CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -I./src
+# Python Radar Parser Makefile
 
-# Find all .cpp files recursively in src/
-SRCS := $(shell find src -name "*.cpp")
+PYTHON = python3
+TEST_DATA = tests/data/example/Radar_Test_Data.txt
+OUTPUT_BAG = radar_output.bag
+RADAR_CSV_DIR = tests/data/radar_parsing
 
-# Convert .cpp to .o
-OBJS := $(SRCS:.cpp=.o)
+# Default target
+all: radar_parser
 
-# Executable name
-TARGET = data_fusion
+# Parse radar data using Python
+radar_parser:
+	cd src/radar && $(PYTHON) radar_parser.py
 
-# Default target - run C++ tests
-all: test_cpp
+# Run radar tests
+test_radar:
+	$(PYTHON) -m unittest tests.test_radar -v
 
-# Link object files into executable
-$(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+# Run all tests
+test: test_radar
 
-# Compile each .cpp into .o
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-# Clean object files and executables
+# Clean up generated files
 clean:
-	rm -f $(OBJS) $(TARGET) radar_tests imu_tests
+	rm -f $(OUTPUT_BAG)
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -name "*.pyc" -delete
+	rm -rf $(RADAR_CSV_DIR)
+	rm -f tests/test_radar_*.txt
 
-# Run C++ tests only
-test_cpp: radar_test imu_test
-
-# Radar tests (C++ dummy)
-radar_test:
-	$(CXX) $(CXXFLAGS) \
-	tests/test_radar_dummy.cpp src/dummy/RadarDummy.cpp \
-	-o radar_tests
-	./radar_tests
-
-# IMU tests
-imu_test:
-	$(CXX) $(CXXFLAGS) \
-	tests/test_imu_dummy.cpp src/imu/IMU.cpp src/imu/IMUBuffer.cpp \
-	-o imu_tests
-	./imu_tests
-
-.PHONY: all clean test_cpp radar_test imu_test
+.PHONY: all radar_parser test test_radar clean
