@@ -33,7 +33,7 @@ int main() {
     RadarDummy radar(10);
 
     // Generate dummy radar data
-    std::vector<RadarDetection> data = radar.generateData();
+    std::vector<RadarPoint> data = radar.generateData();
 
     // Print the points (clean + readable)
     std::cout << "Radar Dummy Data\n";
