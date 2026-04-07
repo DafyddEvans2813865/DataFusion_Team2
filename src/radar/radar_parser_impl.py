@@ -17,42 +17,101 @@ except ImportError:
     pc2 = None
     rospy = None
 
-from radar.radar_point import RadarPoint
+from .radar_point import RadarPoint
+
+
+def u32(data, i):
+    """Extract 32-bit unsigned integer from bytes."""
+    return int.from_bytes(data[i:i+4], 'little')
+
+
+def f32(data, i):
+    """Extract 32-bit float from bytes."""
+    return struct.unpack('<f', data[i:i+4])[0]
 
 
 class RadarParser:
     def __init__(self):
         self.points: List[RadarPoint] = []
+        # Magic word for TI radar frame synchronization
+        self.magic = bytes.fromhex('0201040306050807')
 
     def parse_hex_text(self, hex_text_path: str) -> List[RadarPoint]:
         points = []
+        
         try:
             with open(hex_text_path, 'r') as f:
                 hex_data = f.read().strip()
             raw_bytes = bytes.fromhex(hex_data.replace(' ', ''))
 
-            # Parse the binary data
-            idx = 0
-            while idx + 20 <= len(raw_bytes):
-                frame_num = struct.unpack('I', raw_bytes[idx:idx+4])[0]
-                timestamp = struct.unpack('I', raw_bytes[idx+4:idx+8])[0]
-                range_val = struct.unpack('f', raw_bytes[idx+8:idx+12])[0]
-                angle = struct.unpack('f', raw_bytes[idx+12:idx+16])[0]
-                doppler = struct.unpack('f', raw_bytes[idx+16:idx+20])[0]
+            buffer = bytearray(raw_bytes)
+            
+            while buffer:
+                # Find magic word
+                start = buffer.find(self.magic)
+                if start == -1:
+                    break
+                
+                # Need at least 16 bytes for header (8 bytes magic + 8 bytes header)
+                if len(buffer) < start + 16:
+                    break
+                
+                # Extract packet length
+                pkt_len = int.from_bytes(buffer[start+12:start+16], 'little')
+                if len(buffer) < start + pkt_len:
+                    break
+                
+                # Extract packet
+                packet = buffer[start:start+pkt_len]
+                
+                # Parse frame header
+                frame_number = u32(packet, 20)
+                timestamp = u32(packet, 24)
+                num_tlv = u32(packet, 32)
 
-                #create point 
-                point = RadarPoint(
-                    frame=frame_num,
-                    timestamp=timestamp,
-                    range=range_val,
-                    angle=angle,
-                    elev=0.0,
-                    doppler=doppler,
-                    snr=0,
-                    noise=0
-                )
-                points.append(point)
-                idx += 20
+                # Parse TLVs
+                idx = 44
+                
+                for tlv_idx in range(num_tlv):
+                    if idx + 8 > len(packet):
+                        break
+                    
+                    tlv_type = u32(packet, idx)
+                    tlv_length = u32(packet, idx + 4)
+                    
+                    tlv_end = idx + 8 + tlv_length
+                    
+                    if tlv_length < 8 or tlv_end > len(packet):
+                        break
+                    
+                    idx += 8
+                    
+                    # TLV Type 1: Dynamic Object Detection Points
+                    if tlv_type == 1:
+                        count = tlv_length // 16
+                        for k in range(count):
+                            r = f32(packet, idx)
+                            a = f32(packet, idx + 4)
+                            e = f32(packet, idx + 8)
+                            d = f32(packet, idx + 12)
+                            
+                            point = RadarPoint(
+                                frame=frame_number,
+                                timestamp=timestamp,
+                                range=r,
+                                angle=a,
+                                elev=e,
+                                doppler=d,
+                                snr=0,
+                                noise=0
+                            )
+                            points.append(point)
+                            idx += 16
+                        idx = tlv_end
+                    else:
+                        idx = tlv_end
+                # Move to next packet
+                buffer = buffer[start + pkt_len:]
 
         except FileNotFoundError:
             print(f" File not found: {hex_text_path}")

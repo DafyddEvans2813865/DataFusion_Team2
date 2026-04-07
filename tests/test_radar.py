@@ -7,7 +7,65 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from radar.radar_point import RadarPoint
-from radar.radar_parser_impl import RadarParser, HAS_ROS
+from radar.radar_parser_impl import RadarParser, HAS_ROS, u32, f32
+
+
+def create_ti_radar_frame(frame_num=0, timestamp=1000, points_data=None):
+    """Create a TI radar frame with magic word, header, and TLV data."""
+    if points_data is None:
+        points_data = []
+    
+    # Build TLV Type 1 (detection points)
+    tlv_type_1_data = b''
+    for r, a, e, d in points_data:
+        tlv_type_1_data += struct.pack('<f', r)  # range
+        tlv_type_1_data += struct.pack('<f', a)  # angle
+        tlv_type_1_data += struct.pack('<f', e)  # elevation
+        tlv_type_1_data += struct.pack('<f', d)  # doppler
+    
+    tlv_length = len(tlv_type_1_data)
+    tlv_1 = struct.pack('<II', 1, tlv_length) + tlv_type_1_data  # type=1, length
+    
+    # Calculate packet length (magic=8 + header section=36 + TLVs)
+    # Header is from offset 8 to offset 44 (36 bytes for the metadata before TLVs)
+    # Then TLVs start at offset 44
+    packet_len = 44 + len(tlv_1)  # header portion (up to TLVs) + TLV data
+    
+    # Build the complete packet
+    # Offset 0-7: Magic word
+    magic = bytes.fromhex('0201040306050807')
+    
+    # Offset 8-11: version
+    packet = magic + struct.pack('<I', 1)
+    
+    # Offset 12-15: packet length
+    packet += struct.pack('<I', packet_len)
+    
+    # Offset 16-19: platform
+    packet += struct.pack('<I', 0)
+    
+    # Offset 20-23: frame number
+    packet += struct.pack('<I', frame_num)
+    
+    # Offset 24-27: timestamp
+    packet += struct.pack('<I', timestamp)
+    
+    # Offset 28-31: numObjects
+    packet += struct.pack('<I', len(points_data))
+    
+    # Offset 32-35: numTLV
+    packet += struct.pack('<I', 1)  # We have 1 TLV
+    
+    # Offset 36-39: subframeNum
+    packet += struct.pack('<I', 0)
+    
+    # Offset 40-43: numStaticObjects
+    packet += struct.pack('<I', 0)
+    
+    # Offset 44+: TLVs
+    packet += tlv_1
+    
+    return packet
 
 class TestRadarPoint(unittest.TestCase):
     def test_radar_point_creation(self):
@@ -67,15 +125,15 @@ class TestRadarParser(unittest.TestCase):
         self.assertIsInstance(self.parser.points, list)
 
     def test_parse_hex_text_valid_data(self):
-        test_data = (
-            struct.pack('I', 0) +           # frame 0
-            struct.pack('I', 1000) +        # timestamp 1000
-            struct.pack('f', 10.5) +        # range 10.5
-            struct.pack('f', 45.0) +        # angle 45.0
-            struct.pack('f', 0.5)           # doppler 0.5
+        """Test parsing a single point in TI radar format."""
+        # Create a frame with one detection point
+        test_frame = create_ti_radar_frame(
+            frame_num=0,
+            timestamp=1000,
+            points_data=[(10.5, 45.0, 0.0, 0.5)]  # range, angle, elev, doppler
         )
         
-        test_hex = test_data.hex()
+        test_hex = test_frame.hex()
         test_file = Path(__file__).parent / "test_radar_data.txt"
         
         try:
@@ -98,18 +156,20 @@ class TestRadarParser(unittest.TestCase):
                 test_file.unlink()
 
     def test_parse_hex_text_multiple_points(self):
-        # Create test data with multiple points
-        test_data = b''
-        for i in range(3):
-            test_data += (
-                struct.pack('I', i) +           # frame i
-                struct.pack('I', 1000 + i * 100) +
-                struct.pack('f', 10.0 + i) +
-                struct.pack('f', 45.0 + i * 10) +
-                struct.pack('f', 0.5 + i * 0.1)
-            )
+        """Test parsing multiple points in a single frame."""
+        # Create a frame with 3 detection points
+        points_data = [
+            (10.0, 45.0, 0.0, 0.5),
+            (11.0, 55.0, 0.0, 0.6),
+            (12.0, 65.0, 0.0, 0.7)
+        ]
+        test_frame = create_ti_radar_frame(
+            frame_num=0,
+            timestamp=1000,
+            points_data=points_data
+        )
         
-        test_hex = test_data.hex()
+        test_hex = test_frame.hex()
         test_file = Path(__file__).parent / "test_radar_data_multi.txt"
         
         try:
@@ -120,9 +180,10 @@ class TestRadarParser(unittest.TestCase):
             
             self.assertEqual(len(points), 3)
             for i in range(3):
-                self.assertEqual(points[i].frame, i)
-                self.assertEqual(points[i].timestamp, 1000 + i * 100)
+                self.assertEqual(points[i].frame, 0)
+                self.assertEqual(points[i].timestamp, 1000)
                 self.assertAlmostEqual(points[i].range, 10.0 + i, places=5)
+                self.assertAlmostEqual(points[i].angle, 45.0 + i * 10, places=5)
         finally:
             if test_file.exists():
                 test_file.unlink()
@@ -132,15 +193,14 @@ class TestRadarParser(unittest.TestCase):
         self.assertEqual(len(points), 0)
 
     def test_parse_hex_text_with_spaces(self):
-        test_data = (
-            struct.pack('I', 0) +
-            struct.pack('I', 1000) +
-            struct.pack('f', 15.5) +
-            struct.pack('f', 30.0) +
-            struct.pack('f', 0.3)
+        """Test parsing TI format with spaces in hex string."""
+        test_frame = create_ti_radar_frame(
+            frame_num=0,
+            timestamp=1000,
+            points_data=[(15.5, 30.0, 0.0, 0.3)]
         )
         
-        test_hex = test_data.hex()
+        test_hex = test_frame.hex()
         # Add spaces to hex string
         test_hex_spaced = ' '.join([test_hex[i:i+2] for i in range(0, len(test_hex), 2)])
         
@@ -154,6 +214,7 @@ class TestRadarParser(unittest.TestCase):
             
             self.assertEqual(len(points), 1)
             self.assertEqual(points[0].frame, 0)
+            self.assertAlmostEqual(points[0].range, 15.5, places=5)
         finally:
             if test_file.exists():
                 test_file.unlink()
@@ -196,15 +257,14 @@ class TestRadarParser(unittest.TestCase):
         # The actual coordinate requires ROS dependencies, just verify it's not None
 
     def test_parser_stores_points(self):
-        test_data = (
-            struct.pack('I', 0) +
-            struct.pack('I', 1000) +
-            struct.pack('f', 10.5) +
-            struct.pack('f', 45.0) +
-            struct.pack('f', 0.5)
+        """Test that parser properly stores points in self.points."""
+        test_frame = create_ti_radar_frame(
+            frame_num=0,
+            timestamp=1000,
+            points_data=[(10.5, 45.0, 0.0, 0.5)]
         )
         
-        test_hex = test_data.hex()
+        test_hex = test_frame.hex()
         test_file = Path(__file__).parent / "test_radar_store.txt"
         
         try:

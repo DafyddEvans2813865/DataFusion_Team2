@@ -5,7 +5,7 @@ Classes:
     - RadarParser: Parser for converting radar data to ROS bag files
 """
 
-from radar.radar_parser_impl import RadarParser
+from .radar_parser_impl import RadarParser
 
 if __name__ == "__main__":
     parser = RadarParser()

@@ -1,6 +1,7 @@
 # Python Radar Parser Makefile
 
 PYTHON = python3
+PYTHONPATH = src
 TEST_DATA = tests/data/example/Radar_Test_Data.txt
 OUTPUT_BAG = radar_output.bag
 RADAR_CSV_DIR = tests/data/radar_parsing
@@ -10,11 +11,11 @@ all: radar_parser
 
 # Parse radar data using Python
 radar_parser:
-	cd src/radar && $(PYTHON) radar_parser.py
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m radar.radar_parser
 
 # Run radar tests
 test_radar:
-	$(PYTHON) -m unittest tests.test_radar -v
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest tests.test_radar -v
 
 # Run all tests
 test: test_radar
