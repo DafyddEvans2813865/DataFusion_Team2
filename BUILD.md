@@ -7,27 +7,36 @@
 - `make test` - Run all tests (radar + IMU)
 - `make clean` - Clean up generated files and cache
 
-## Data Processing
+## ROS Bag File Conversion
 
-### Radar Data Processing
+### Convert Both Radar and IMU to Bag Files
 
-- `make radar_parser` - Parse `tests/data/example/Radar_Test_Data.txt` using the Python radar parser
+- `make` or `make all` - Convert both radar and IMU sensor data to ROS bag files
+- `make bags` - Same as above (alias for convert)
+- `make convert` - Explicitly convert both radar and IMU data to bag files
 
-### IMU Data Processing
+This creates:
+- `radar_output.bag` - ROS bag file with radar PointCloud2 messages
+- `imu_output.bag` - ROS bag file with IMU messages
 
-- `make imu_parser` - Parse IMU binary data using the Python IMU parser
+**Requirements**: ROS must be installed with rosbag support
 
-## Build All
+### Individual Data Processing
 
-- `make` or `make all` - Runs both radar and IMU parsers
+- `make radar_parser` - Parse `tests/data/example/Radar_Test_Data.txt` using the Python radar parser (displays parsed data)
+- `make imu_parser` - Parse IMU binary data using the Python IMU parser (displays parsed data)
 
 ## Directory Structure
+
+### Main Module
+
+- `src/main.py` - Main conversion script that generates both radar and IMU bag files
 
 ### Radar Module
 
 - `src/radar/` - Python radar parsing module
   - `radar_point.py` - RadarPoint data class
-  - `radar_parser_impl.py` - RadarParser implementation (TI IWR format)
+  - `radar_parser_impl.py` - RadarParser implementation (TI IWR format with bag file export)
   - `radar_parser.py` - Module interface and CLI
   - `__init__.py` - Package exports
 
@@ -35,18 +44,19 @@
 
 - `src/imu/` - Python IMU parsing module
   - `imu_point.py` - IMUPoint data class
-  - `imu_parser_impl.py` - IMUParser implementation (binary format with 0x5555 headers)
+  - `imu_parser_impl.py` - IMUParser implementation (binary format with 0x5555 headers and bag file export)
   - `imu_parser.py` - Module interface and CLI
   - `__init__.py` - Package exports
-  - `IMU.cpp`, `IMU.h` - Legacy C++ code (deprecated)
 
 ### Tests
 
 - `tests/` - Test suite
   - `test_radar.py` - Radar parser unit tests
+  - `test_imu.py` - IMU parser unit tests
   - `data/example/` - Test data
     - `Radar_Test_Data.txt` - TI radar hex format
-    - `20_second_moving_test.bin` - IMU binary data
+    - `IMU_Test_Data.csv` - IMU CSV data
+    - `IMU_Test_Data.bin` - IMU binary data (0x5555 packet format)
 
 ## Data Formats
 

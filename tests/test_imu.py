@@ -222,7 +222,7 @@ class TestIMUParser(unittest.TestCase):
 
     def test_parse_real_test_data(self):
         """Test parsing actual IMU test data if it exists."""
-        test_data_path = Path(__file__).parent / "data" / "example" / "20_second_moving_test.bin"
+        test_data_path = Path(__file__).parent / "data" / "example" / "IMU_Test_Data.bin"
         
         if test_data_path.exists():
             points = self.parser.parse_binary_file(str(test_data_path))

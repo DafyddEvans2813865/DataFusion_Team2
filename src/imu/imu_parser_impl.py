@@ -1,8 +1,24 @@
 import struct
+import numpy as np
 from pathlib import Path
 from typing import List, Optional
 
 from .imu_point import IMUPoint
+
+try:
+    import rosbag
+    from sensor_msgs.msg import Imu
+    from geometry_msgs.msg import Quaternion, Vector3
+    from std_msgs.msg import Header
+    import rospy
+    HAS_ROS = True
+except ImportError:
+    HAS_ROS = False
+    Imu = None
+    Quaternion = None
+    Vector3 = None
+    Header = None
+    rospy = None
 
 
 class IMUParser:
@@ -103,6 +119,7 @@ class IMUParser:
                 # Move to next packet
                 buffer = buffer[total_len:]
         
+        
         except FileNotFoundError:
             print(f"File not found: {binary_file_path}")
             return []
@@ -112,3 +129,119 @@ class IMUParser:
         
         self.points = points
         return points
+
+    def _quaternion_from_euler(self, roll: float, pitch: float, yaw: float) -> Quaternion:
+        #Convert Euler to radians.
+
+        if not HAS_ROS:
+            return None
+
+        # Half angles
+        cy = np.cos(yaw * 0.5)
+        sy = np.sin(yaw * 0.5)
+        cp = np.cos(pitch * 0.5)
+        sp = np.sin(pitch * 0.5)
+        cr = np.cos(roll * 0.5)
+        sr = np.sin(roll * 0.5)
+
+        w = cr * cp * cy + sr * sp * sy
+        x = sr * cp * cy - cr * sp * sy
+        y = cr * sp * cy + sr * cp * sy
+        z = cr * cp * sy - sr * sp * cy
+
+        return Quaternion(x=x, y=y, z=z, w=w)
+
+    def to_imu_message(self, point: IMUPoint, frame_id: str = "imu") -> Imu:
+        #Convert IMUPoint to ROS Imu message
+        if not HAS_ROS:
+            print("ROS not installed. Cannot create Imu messages.")
+            return None
+
+        timestamp_ms = int(point.time * 1000) 
+        t = rospy.Time(secs=timestamp_ms // 1000, nsecs=(timestamp_ms % 1000) * 1000000)
+
+        msg = Imu()
+        msg.header = Header(stamp=t, frame_id=frame_id)
+
+        # Orientation (Not provided by this IMU? ) 
+        msg.orientation = Quaternion(x=0, y=0, z=0, w=1)
+        msg.orientation_covariance = [-1, 0, 0, 0, 0, 0, 0, 0, 0]  # Unknown
+
+        # Angular velocity (rad/s)
+        msg.angular_velocity = Vector3(
+            x=point.x_rate,
+            y=point.y_rate,
+            z=point.z_rate
+        )
+
+        # Covariance for angular velocity (row-major about x, y, z axes)
+        msg.angular_velocity_covariance = [0] * 9
+
+        # Linear acceleration (m/s^2)
+        msg.linear_acceleration = Vector3(
+            x=point.x_accel,
+            y=point.y_accel,
+            z=point.z_accel
+        )
+        # Covariance for linear acceleration (row-major x, y, z)
+        msg.linear_acceleration_covariance = [0] * 9
+
+        return msg
+
+    def to_bag(self, output_path: str, topic_name: str = "/imu/data") -> bool:
+        """
+        Create a ROS bag file from parsed IMU data.
+        """
+        if not HAS_ROS:
+            print("ROS not installed. Cannot create bag files.")
+            return False
+
+        points = self.points
+
+        if not points:
+            print("No points to write")
+            return False
+
+        try:
+            with rosbag.Bag(output_path, 'w') as bag:
+                for point in points:
+                    msg = self.to_imu_message(point)
+                    if msg:
+                        # Use time from point for the bag timestamp
+                        timestamp_ms = int(point.time * 1000)
+                        t = rospy.Time(secs=timestamp_ms // 1000,
+                                     nsecs=(timestamp_ms % 1000) * 1000000)
+                        bag.write(topic_name, msg, t)
+
+            print(f"Bag file created: {output_path}")
+            return True
+
+        except Exception as e:
+            print(f"Error creating bag file: {e}")
+            return False
+
+    def inspect_bag(self, bag_path: str) -> None:
+        if not HAS_ROS:
+            print("ROS not installed. Cannot inspect bag files.")
+            return
+
+        if not Path(bag_path).exists():
+            print(f"Bag file not found: {bag_path}")
+            return
+
+        try:
+            with rosbag.Bag(bag_path, 'r') as bag:
+                print(f"Bag file: {bag_path}")
+                print(f"  Duration: {bag.get_end_time() - bag.get_start_time():.2f} seconds")
+                print(f"  Start time: {bag.get_start_time()}")
+                print(f"  End time: {bag.get_end_time()}")
+
+                # Get topic information
+                info = bag.get_type_and_topic_info()
+                print(f"  Topics:")
+                for topic, topic_info in info.topics.items():
+                    print(f"    {topic}: {topic_info.msg_type} ({topic_info.message_count} messages)")
+
+        except Exception as e:
+            print(f"Error inspecting bag file: {e}")
+
