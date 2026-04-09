@@ -22,8 +22,6 @@ except ImportError:
 
 
 class IMUParser:
-    """Parser for IMU binary data with 0x5555 packet headers."""
-    
     # IMU packet structure: [0x55 0x55][type(2)][length(1)][payload][checksum(2)]
     IMU_FMT = '<IdfffffffffffffffBBB'
     IMU_HEADER = b'\x55\x55'
@@ -42,7 +40,6 @@ class IMUParser:
         ]
     
     def parse_binary_file(self, binary_file_path: str) -> List[IMUPoint]:
-        """Parse binary IMU data file and extract IMU data points."""
         points = []
         
         try:
@@ -132,7 +129,6 @@ class IMUParser:
 
     def _quaternion_from_euler(self, roll: float, pitch: float, yaw: float) -> Quaternion:
         #Convert Euler to radians.
-
         if not HAS_ROS:
             return None
 
@@ -152,7 +148,6 @@ class IMUParser:
         return Quaternion(x=x, y=y, z=z, w=w)
 
     def to_imu_message(self, point: IMUPoint, frame_id: str = "imu") -> Imu:
-        #Convert IMUPoint to ROS Imu message
         if not HAS_ROS:
             print("ROS not installed. Cannot create Imu messages.")
             return None
@@ -163,7 +158,7 @@ class IMUParser:
         msg = Imu()
         msg.header = Header(stamp=t, frame_id=frame_id)
 
-        # Orientation (Not provided by this IMU? ) 
+        # Orientation (Not provided by this IMU?) 
         msg.orientation = Quaternion(x=0, y=0, z=0, w=1)
         msg.orientation_covariance = [-1, 0, 0, 0, 0, 0, 0, 0, 0]  # Unknown
 
@@ -189,9 +184,6 @@ class IMUParser:
         return msg
 
     def to_bag(self, output_path: str, topic_name: str = "/imu/data") -> bool:
-        """
-        Create a ROS bag file from parsed IMU data.
-        """
         if not HAS_ROS:
             print("ROS not installed. Cannot create bag files.")
             return False
