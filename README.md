@@ -57,10 +57,6 @@ DataFusion_Team2/
 pip install -r requirements.txt
 ```
 
-### For ROS integration (optional):
-
-Install ROS and rosbag to enable bag file export functionality.
-
 ## Usage
 
 ### Convert Sensor Data to ROS Bag Files
