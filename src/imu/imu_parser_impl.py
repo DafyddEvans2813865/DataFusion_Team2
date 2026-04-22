@@ -1,4 +1,6 @@
 import struct
+import csv
+import math
 import numpy as np
 from pathlib import Path
 from typing import List, Optional
@@ -31,7 +33,7 @@ class IMUParser:
         self.imu_size = struct.calcsize(self.IMU_FMT)
         self.imu_fields = [
             'time_counter', 'time',
-            'roll', 'pitch', 'heading',
+            'roll', 'pitch', 'yaw',
             'x_accel', 'y_accel', 'z_accel',
             'x_rate', 'y_rate', 'z_rate',
             'x_rate_bias', 'y_rate_bias', 'z_rate_bias',
@@ -91,7 +93,7 @@ class IMUParser:
                         time=values[1],
                         roll=values[2],
                         pitch=values[3],
-                        heading=values[4],
+                        yaw=values[4],
                         x_accel=values[5],
                         y_accel=values[6],
                         z_accel=values[7],
@@ -127,7 +129,156 @@ class IMUParser:
         self.points = points
         return points
 
-    def _quaternion_from_euler(self, roll: float, pitch: float, yaw: float) -> Quaternion:
+
+
+    def parse_a2_binary_file(self, binary_file_path: str) -> List[IMUPoint]:
+        """Parse A2 mode binary file with stationary_A2 packet format.
+        
+        Binary format: Each packet is 55 bytes
+        - Header (5 bytes): 0x55 0x55 0x61 0x32 0x30 ("UUa20")
+        - Payload (50 bytes): Sensor data in binary format
+        
+        Payload structure (50 bytes = 12 floats + 2 bytes):
+        - Float 0: Reserved/timestamp_ms (converted to time_counter)
+        - Float 1-11: Data fields (roll, pitch, heading, rates, accels, etc.)
+        """
+        points = []
+        
+        try:
+            with open(binary_file_path, 'rb') as f:
+                binary_data = f.read()
+            
+            # Each packet is 55 bytes: 5-byte header + 50-byte payload
+            packet_size = 55
+            header = b'UUa20'
+            
+            offset = 0
+            packet_num = 0
+            
+            while offset + packet_size <= len(binary_data):
+                # Check for valid header
+                if binary_data[offset:offset+5] != header:
+                    offset += 1
+                    continue
+                
+                try:
+                    # Parse payload (50 bytes = 12 floats + 2 padding bytes)
+                    payload_start = offset + 5
+                    payload = binary_data[payload_start:payload_start+48]
+                    
+                    if len(payload) < 48:
+                        break
+                    
+                    # Unpack 12 float values
+                    values = struct.unpack('<12f', payload)
+                    
+                    # Map values to IMU fields
+                    # Based on observed data: values[5] ≈ heading, values[11] ≈ zAccel
+                    # Mapping is: [reserved, reserved, roll, pitch, ?, heading, xRate, yRate, zRate, xAccel, yAccel, zAccel]
+                    roll_deg = values[2]
+                    pitch_deg = values[3]
+                    heading_deg = values[5]
+                    x_rate = values[6]
+                    y_rate = values[7]
+                    z_rate = values[8]
+                    x_accel = values[9]
+                    y_accel = values[10]
+                    z_accel = values[11]
+                    
+                    # Generate time counter from packet number (assuming ~100 Hz)
+                    time_counter = 209130 + (packet_num * 10)  # 10 ms per packet
+                    time = time_counter / 1000.0
+                    
+                    # Convert angles from degrees to radians
+                    roll = math.radians(roll_deg)
+                    pitch = math.radians(pitch_deg)
+                    yaw = math.radians(heading_deg)
+                    
+                    # Create IMUPoint
+                    point = IMUPoint(
+                        time_counter=time_counter,
+                        time=time,
+                        roll=roll,
+                        pitch=pitch,
+                        yaw=yaw,
+                        x_accel=x_accel,
+                        y_accel=y_accel,
+                        z_accel=z_accel,
+                        x_rate=x_rate,
+                        y_rate=y_rate,
+                        z_rate=z_rate,
+                        x_rate_bias=0.0,
+                        y_rate_bias=0.0,
+                        z_rate_bias=0.0,
+                        x_mag=0.0,
+                        y_mag=0.0,
+                        z_mag=0.0,
+                        op_mode=0,
+                        lin_acc_switch=0,
+                        turn_switch=0
+                    )
+                    points.append(point)
+                    packet_num += 1
+                    
+                except struct.error as e:
+                    print(f"Warning: Error unpacking packet at offset {offset}: {e}")
+                
+                offset += packet_size
+            
+            print(f"Successfully parsed {len(points)} packets from A2 binary file")
+            
+        except FileNotFoundError:
+            print(f"File not found: {binary_file_path}")
+            return []
+        except Exception as e:
+            print(f"Error parsing A2 binary file: {e}")
+            return []
+        
+        self.points = points
+        return points
+
+    def to_csv(self, output_file: str) -> bool:
+        """Export parsed IMU points to CSV format for verification.
+        
+        Exports all parsed data points with angles in degrees and rates in deg/s.
+        """
+        if not self.points:
+            print("No points to export")
+            return False
+        
+        try:
+            with open(output_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                
+                # Write header
+                writer.writerow([
+                    'timeITOW (msec)', 'time (s)', 'roll (deg)', 'pitch (deg)', 'heading (deg)',
+                    'xRate (rad/s)', 'yRate (deg/s)', 'zRate (deg/s)',
+                    'xAccel (m/s^2)', 'yAccel (m/s^2)', 'zAccel (m/s^2)'
+                ])
+                
+                # Write data rows
+                for point in self.points:
+                    writer.writerow([
+                        point.time_counter,
+                        f"{point.time:.2f}",
+                        f"{math.degrees(point.roll):.4f}",
+                        f"{math.degrees(point.pitch):.4f}",
+                        f"{math.degrees(point.yaw):.4f}",
+                        f"{point.x_rate:.4f}",
+                        f"{math.degrees(point.y_rate):.4f}",
+                        f"{math.degrees(point.z_rate):.4f}",
+                        f"{point.x_accel:.4f}",
+                        f"{point.y_accel:.4f}",
+                        f"{point.z_accel:.4f}"
+                    ])
+            
+            print(f"Successfully exported {len(self.points)} points to: {output_file}")
+            return True
+            
+        except Exception as e:
+            print(f"Error exporting to CSV: {e}")
+            return False
         #Convert Euler to radians.
         if not HAS_ROS:
             return None
@@ -158,11 +309,15 @@ class IMUParser:
         msg = Imu()
         msg.header = Header(stamp=t, frame_id=frame_id)
 
-        # Orientation (Not provided by this IMU?) 
-        msg.orientation = Quaternion(x=0, y=0, z=0, w=1)
-        msg.orientation_covariance = [-1, 0, 0, 0, 0, 0, 0, 0, 0]  # Unknown
+        # Orientation from Euler angles (roll, pitch, yaw)
+        msg.orientation = self._quaternion_from_euler(
+            math.degrees(point.roll),
+            math.degrees(point.pitch),
+            math.degrees(point.yaw)
+        )
+        msg.orientation_covariance = [0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01]  # Estimated covariance
 
-        # Angular velocity (rad/s)
+        # Angular velocity (rad/s) - convert from radians if needed
         msg.angular_velocity = Vector3(
             x=point.x_rate,
             y=point.y_rate,
@@ -170,7 +325,7 @@ class IMUParser:
         )
 
         # Covariance for angular velocity (row-major about x, y, z axes)
-        msg.angular_velocity_covariance = [0] * 9
+        msg.angular_velocity_covariance = [0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01]
 
         # Linear acceleration (m/s^2)
         msg.linear_acceleration = Vector3(
@@ -179,7 +334,7 @@ class IMUParser:
             z=point.z_accel
         )
         # Covariance for linear acceleration (row-major x, y, z)
-        msg.linear_acceleration_covariance = [0] * 9
+        msg.linear_acceleration_covariance = [0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01]
 
         return msg
 
