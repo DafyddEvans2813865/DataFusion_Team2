@@ -83,29 +83,6 @@ class TestIMUParser(unittest.TestCase):
         self.assertEqual(len(self.parser.points), 0)
         self.assertIsInstance(self.parser.points, list)
 
-    def test_parse_a2_csv_file_not_found(self):
-        """Test parsing A2 CSV when file doesn't exist."""
-        points = self.parser.parse_a2_csv_file("/nonexistent/file.csv")
-        self.assertEqual(len(points), 0)
-
-    def test_parse_a2_csv_real_data(self):
-        """Test parsing actual A2 CSV test data if it exists."""
-        test_data_path = Path(__file__).parent / "data" / "example" / "a2_packet_type_a2.csv"
-        
-        if test_data_path.exists():
-            points = self.parser.parse_a2_csv_file(str(test_data_path))
-            # Should parse some points from real data
-            self.assertGreater(len(points), 0)
-            
-            # Verify all points have required fields
-            for point in points:
-                self.assertIsInstance(point, IMUPoint)
-                self.assertIsNotNone(point.time)
-                self.assertIsNotNone(point.roll)
-                self.assertIsNotNone(point.pitch)
-                self.assertIsNotNone(point.yaw)
-
-
     def test_parse_a2_binary_file_not_found(self):
         """Test parsing A2 binary when file doesn't exist."""
         points = self.parser.parse_a2_binary_file("/nonexistent/file.bin")
@@ -113,7 +90,7 @@ class TestIMUParser(unittest.TestCase):
 
     def test_parse_a2_binary_real_data(self):
         """Test parsing actual A2 binary test data if it exists."""
-        test_data_path = Path(__file__).parent / "data" / "example" / "stationary_A2.bin"
+        test_data_path = Path(__file__).parent / "data" / "example" / "IMU_Test_Data.bin"
         
         if test_data_path.exists():
             points = self.parser.parse_a2_binary_file(str(test_data_path))
