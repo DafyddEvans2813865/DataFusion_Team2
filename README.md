@@ -7,9 +7,9 @@ A Python-based sensor data processing system for parsing radar and IMU data, wit
 This project provides tools for:
 
 - Parsing TI IWR radar data in TLV format with magic word synchronization
-- Parsing binary IMU data with 0x5555 packet headers
+- Parsing OpenIMU300ZI A2 mode CSV data with orientation information
 - Converting spherical (range, angle, elevation) to Cartesian (x, y, z) coordinates
-- Exporting radar data to ROS bag files for use with ROS-based systems
+- Exporting sensor data to ROS bag files for use with ROS-based systems
 - Comprehensive unit testing of sensor data parsing
 
 ## Project Structure
@@ -33,9 +33,8 @@ DataFusion_Team2/
 │   ├── test_imu.py                 # IMU parser unit tests
 │   └── data/
 │       └── example/
-│           ├── Radar_Test_Data.txt # TI radar hex format
-│           ├── IMU_Test_Data.csv   # IMU CSV format (sample)
-│           └── IMU_Test_Data.bin   # IMU binary format (0x5555 packets)
+│           ├── Radar_Test_Data.txt      # TI radar hex format
+│           └── a2_packet_type_a2.csv  # IMU A2 mode CSV format
 ├── Makefile                # Build and test commands
 ├── requirements.txt        # Python dependencies
 ├── BUILD.md               # Detailed build documentation
@@ -117,10 +116,18 @@ print(f'Parsed {len(radar_points)} radar points')
 radar_parser.to_bag('radar_output.bag', '/radar/points')
 parser.inspect_bag('radar_output.bag')
 
-# Parse IMU data
+# Parse IMU A2 CSV data
 imu_parser = IMUParser()
-imu_points = imu_parser.parse_binary_file('tests/data/example/IMU_Test_Data.bin')
-print(f'Parsed {len(imu_points)} IMU points')
+imu_points = imu_parser.parse_a2_csv_file('tests/data/example/a2_packet_type_a2.csv')
+print(f'Parsed {len(imu_points)} IMU points from CSV')
+
+# OR Parse IMU A2 binary data
+imu_parser = IMUParser()
+imu_points = imu_parser.parse_a2_binary_file('tests/data/example/stationary_A2.bin')
+print(f'Parsed {len(imu_points)} IMU points from binary')
+
+# Export parsed data to CSV for verification
+imu_parser.to_csv('imu_parsed_output.csv')
 
 # Export IMU to ROS bag (requires ROS)
 imu_parser.to_bag('imu_output.bag', '/imu/data')
@@ -181,27 +188,43 @@ Data class representing a single IMU measurement.
 
 **Fields:**
 
-- `time_counter` (int): Time counter value
+- `time_counter` (int): Time counter value (milliseconds)
 - `time` (float): Time in seconds (double precision)
-- `roll`, `pitch`, `heading` (float): Euler angles in degrees
-- `x_accel`, `y_accel`, `z_accel` (float): Acceleration in g's
-- `x_rate`, `y_rate`, `z_rate` (float): Angular rates in deg/s
-- `x_rate_bias`, `y_rate_bias`, `z_rate_bias` (float): Angular rate biases
-- `x_mag`, `y_mag`, `z_mag` (float): Magnetometer readings
-- `op_mode`, `lin_acc_switch`, `turn_switch` (int): Mode flags
+- `roll`, `pitch`, `yaw` (float): Euler angles in radians
+- `x_accel`, `y_accel`, `z_accel` (float): Linear acceleration in m/s²
+- `x_rate`, `y_rate`, `z_rate` (float): Angular rates in radians/sec
+- `x_rate_bias`, `y_rate_bias`, `z_rate_bias` (float): Angular rate biases (unused in A2)
+- `x_mag`, `y_mag`, `z_mag` (float): Magnetometer readings (unused in A2)
+- `op_mode`, `lin_acc_switch`, `turn_switch` (int): Mode flags (unused in A2)
+- `data_source` (str): Data format source (always "A2")
 
 #### IMUParser
 
 **Methods:**
 
-- `parse_binary_file(binary_file_path: str) -> List[IMUPoint]`
-  - Parses binary IMU data with 0x5555 packet headers
-  - Returns list of IMUPoint objects
+- `parse_a2_csv_file(csv_file_path: str) -> List[IMUPoint]`
+  - Parses OpenIMU300ZI A2 mode CSV data (stationary_A2 packet format)
+  - Handles unit conversions (degrees → radians)
+  - Returns list of IMUPoint objects with full 3D orientation
+
+- `parse_a2_binary_file(binary_file_path: str) -> List[IMUPoint]`
+  - Parses OpenIMU300ZI A2 mode binary data (stationary_A2.bin format)
+  - Binary packet format: 55-byte packets with 5-byte header ("UUa20") + 50-byte payload
+  - Each packet contains sensor readings at approximately 100 Hz sample rate
+  - Handles floating-point data extraction and unit conversions
+  - Returns list of IMUPoint objects with data_source="A2_BIN"
+  - Supports both CSV and binary formats transparently (auto-detection by file extension)
+
+- `to_csv(output_file: str) -> bool`
+  - Exports parsed IMU points to CSV format for verification
+  - Outputs angles in degrees, rates in deg/s for human readability
+  - Includes data_source column
+  - Returns True on success, False otherwise
 
 - `to_imu_message(point: IMUPoint, frame_id: str = "imu") -> Imu`
   - Converts single IMUPoint to ROS Imu message
   - Requires ROS installation
-  - Orientation marked as unknown (covariance[0] = -1) per ROS spec
+  - Orientation includes full 3D pose from yaw angle
   - Returns None if ROS not available
 
 - `to_bag(output_path: str, topic_name: str = "/imu/data") -> bool`
@@ -236,10 +259,10 @@ make test          # Run all tests (radar + IMU)
 **IMU Test Coverage:**
 
 - IMUPoint creation and conversion
-- IMU binary format parsing (0x5555 header detection, packet extraction)
-- Multiple measurements per file
+- IMU A2 CSV format parsing (header detection, data extraction)
+- Unit conversions (degrees to radians)
 - Error handling (missing files, invalid data)
-- Real test data parsing
+- Real A2 test data parsing with orientation verification
 
 ## ROS Message Formats
 
@@ -256,9 +279,9 @@ Radar detection data is converted to ROS `sensor_msgs/PointCloud2` messages:
 IMU sensor data is converted to ROS `sensor_msgs/Imu` messages:
 
 - **Header**: Timestamp and frame ID ("imu")
-- **Orientation**: Marked as unknown (quaternion with covariance[0] = -1)
+- **Orientation**: Full 3D orientation from roll, pitch, yaw Euler angles (quaternion)
 - **Angular Velocity**: x, y, z (rad/sec)
-- **Linear Acceleration**: x, y, z (m/s², converted from g's)
+- **Linear Acceleration**: x, y, z (m/s²)
 - **Covariance Matrices**: 3x3 matrices for orientation, angular velocity, and linear acceleration
 
 ## Data Formats
@@ -272,19 +295,18 @@ Binary format with:
 - **TLVs**: Type-Length-Value sections for different data types
   - Type 1: Dynamic Object Detection Points (4 floats per point: range, angle, elevation, doppler)
 
-### IMU Binary Format
+### IMU A2 Mode CSV Format
 
-Packet-based format with:
+OpenIMU300ZI A2 mode (stationary_A2 packet format) CSV with columns:
 
-- **Header**: `0x5555` (2 bytes, little-endian: 0x55, 0x55)
-- **Packet Structure**: `[header(2)][type(2)][length(1)][payload(length)][checksum(2)]`
-- **Payload**: 19 fields total including:
-  - Time counter (uint32) and time (double)
-  - Attitude: roll, pitch, heading (degrees)
-  - Accelerations: x, y, z (m/s²)
-  - Angular rates: x, y, z (rad/sec)
-  - Rate biases and magnetometer readings
-  - Mode flags
+- **timeITOW (msec)**: Time in milliseconds
+- **time (s)**: Time in seconds (floating point)
+- **roll, pitch, heading (deg)**: Euler angles in degrees
+- **xRate (rad/s)**: X-axis angular rate in radians/sec
+- **yRate, zRate (deg/s)**: Y and Z angular rates in degrees/sec
+- **xAccel, yAccel, zAccel (m/s²)**: Linear accelerations
+
+The parser automatically converts angles to radians and rates to consistent units (rad/s) for internal processing. CSV export provides human-readable degrees/deg-sec format for verification.
 
 ## CI/CD
 

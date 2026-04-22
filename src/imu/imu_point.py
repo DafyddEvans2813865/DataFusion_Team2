@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass
@@ -8,22 +9,22 @@ class IMUPoint:
     time: float
     roll: float
     pitch: float
-    heading: float
+    yaw: float  # heading/yaw in degrees
     x_accel: float
     y_accel: float
     z_accel: float
     x_rate: float
     y_rate: float
     z_rate: float
-    x_rate_bias: float
-    y_rate_bias: float
-    z_rate_bias: float
-    x_mag: float
-    y_mag: float
-    z_mag: float
-    op_mode: int
-    lin_acc_switch: int
-    turn_switch: int
+    x_rate_bias: float = 0.0
+    y_rate_bias: float = 0.0
+    z_rate_bias: float = 0.0
+    x_mag: float = 0.0
+    y_mag: float = 0.0
+    z_mag: float = 0.0
+    op_mode: int = 0
+    lin_acc_switch: int = 0
+    turn_switch: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -31,7 +32,7 @@ class IMUPoint:
             'time': self.time,
             'roll': self.roll,
             'pitch': self.pitch,
-            'heading': self.heading,
+            'yaw': self.yaw,
             'x_accel': self.x_accel,
             'y_accel': self.y_accel,
             'z_accel': self.z_accel,
@@ -46,5 +47,5 @@ class IMUPoint:
             'z_mag': self.z_mag,
             'op_mode': self.op_mode,
             'lin_acc_switch': self.lin_acc_switch,
-            'turn_switch': self.turn_switch,
+            'turn_switch': self.turn_switch
         }
