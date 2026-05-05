@@ -8,11 +8,13 @@ from typing import List, Optional
 from .imu_point import IMUPoint
 
 try:
-    import rosbag
+    import rosbag2_py
+    from rclpy.serialization import serialize_message
+    from rosidl_runtime_py.utilities import get_message
     from sensor_msgs.msg import Imu
     from geometry_msgs.msg import Quaternion, Vector3
     from std_msgs.msg import Header
-    import rospy
+    import rclpy
     HAS_ROS = True
 except ImportError:
     HAS_ROS = False
@@ -20,7 +22,7 @@ except ImportError:
     Quaternion = None
     Vector3 = None
     Header = None
-    rospy = None
+    rclpy = None
 
 
 class IMUParser:
@@ -303,11 +305,11 @@ class IMUParser:
             print("ROS not installed. Cannot create Imu messages.")
             return None
 
-        timestamp_ms = int(point.time * 1000) 
-        t = rospy.Time(secs=timestamp_ms // 1000, nsecs=(timestamp_ms % 1000) * 1000000)
-
         msg = Imu()
-        msg.header = Header(stamp=t, frame_id=frame_id)
+        msg.header = Header()
+        msg.header.stamp.sec = int(point.time)
+        msg.header.stamp.nanosec = int((point.time % 1) * 1e9)
+        msg.header.frame_id = frame_id
 
         # Orientation from Euler angles (roll, pitch, yaw)
         msg.orientation = self._quaternion_from_euler(
@@ -350,45 +352,45 @@ class IMUParser:
             return False
 
         try:
-            with rosbag.Bag(output_path, 'w') as bag:
-                for point in points:
-                    msg = self.to_imu_message(point)
-                    if msg:
-                        # Use time from point for the bag timestamp
-                        timestamp_ms = int(point.time * 1000)
-                        t = rospy.Time(secs=timestamp_ms // 1000,
-                                     nsecs=(timestamp_ms % 1000) * 1000000)
-                        bag.write(topic_name, msg, t)
+            writer = rosbag2_py.SequentialWriter()
 
-            print(f"Bag file created: {output_path}")
+            storage_options = rosbag2_py.StorageOptions(
+                uri=output_path,
+                storage_id='sqlite3'
+            )
+
+            converter_options = rosbag2_py.ConverterOptions(
+                input_serialization_format='cdr',
+                output_serialization_format='cdr'
+            )
+
+            writer.open(storage_options, converter_options)
+
+            topic_info = rosbag2_py.TopicMetadata(
+                name=topic_name,
+                type='sensor_msgs/msg/Imu',
+                serialization_format='cdr'
+            )
+
+            writer.create_topic(topic_info)
+
+            for point in points:
+                msg = self.to_imu_message(point)
+                if msg:
+                    timestamp_ns = int(point.time * 1e9)
+                    writer.write(
+                        topic_name,
+                        serialize_message(msg),
+                        timestamp_ns
+                    )
+
+            print(f"ROS2 bag file created: {output_path}")
             return True
 
         except Exception as e:
-            print(f"Error creating bag file: {e}")
+            print(f"Error creating ROS2 bag file: {e}")
             return False
 
     def inspect_bag(self, bag_path: str) -> None:
-        if not HAS_ROS:
-            print("ROS not installed. Cannot inspect bag files.")
-            return
-
-        if not Path(bag_path).exists():
-            print(f"Bag file not found: {bag_path}")
-            return
-
-        try:
-            with rosbag.Bag(bag_path, 'r') as bag:
-                print(f"Bag file: {bag_path}")
-                print(f"  Duration: {bag.get_end_time() - bag.get_start_time():.2f} seconds")
-                print(f"  Start time: {bag.get_start_time()}")
-                print(f"  End time: {bag.get_end_time()}")
-
-                # Get topic information
-                info = bag.get_type_and_topic_info()
-                print(f"  Topics:")
-                for topic, topic_info in info.topics.items():
-                    print(f"    {topic}: {topic_info.msg_type} ({topic_info.message_count} messages)")
-
-        except Exception as e:
-            print(f"Error inspecting bag file: {e}")
-
+        print("ROS2 bag inspection not implemented (rosbag2_py has no simple reader API).")
+        print(f"Bag path: {bag_path}")

@@ -4,18 +4,18 @@ from pathlib import Path
 from typing import List, Optional
 
 try:
-    import rosbag
-    from sensor_msgs.msg import PointCloud2
+    import rosbag2_py
+    from rclpy.serialization import serialize_message
+    from sensor_msgs.msg import PointCloud2, PointField
     from std_msgs.msg import Header
-    import sensor_msgs.point_cloud2 as pc2
-    import rospy
+    import rclpy
     HAS_ROS = True
 except ImportError:
     HAS_ROS = False
     PointCloud2 = None
+    PointField = None
     Header = None
-    pc2 = None
-    rospy = None
+    rclpy = None
 
 from .radar_point import RadarPoint
 
@@ -132,7 +132,7 @@ class RadarParser:
             return None
 
         # Convert spherical to Cartesian coordinates
-        points = []
+        points_out = []
         for det in points:
             r = det.range
             angle_rad = np.radians(det.angle)
@@ -143,16 +143,33 @@ class RadarParser:
             z = r * np.sin(elev_rad)
             intensity = det.snr
 
-            points.append([x, y, z, intensity])
+            points_out.append([x, y, z, intensity])
 
-        points_array = np.array(points, dtype=np.float32)
+        points_array = np.array(points_out, dtype=np.float32)
 
-        msg = pc2.create_cloud(
-            Header(frame_id=frame_id),
-            [('x', np.float32), ('y', np.float32),
-             ('z', np.float32), ('intensity', np.float32)],
-            points_array
-        )
+        msg = PointCloud2()
+        msg.header = Header()
+        msg.header.frame_id = frame_id
+
+        # Set timestamp to zero (will be overridden in bag write)
+        msg.header.stamp.sec = 0
+        msg.header.stamp.nanosec = 0
+
+        msg.height = 1
+        msg.width = len(points_array)
+
+        msg.fields = [
+            PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+            PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+            PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+            PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
+        ]
+        msg.is_bigendian = False
+        msg.point_step = 16  # 4 fields * 4 bytes
+        msg.row_step = msg.point_step * msg.width
+        msg.is_dense = True
+
+        msg.data = points_array.tobytes()
 
         return msg
 
@@ -168,55 +185,55 @@ class RadarParser:
             return False
 
         try:
-            with rosbag.Bag(output_path, 'w') as bag:
-                # Group by frame
-                frames = {}
-                for point in points:
-                    if point.frame not in frames:
-                        frames[point.frame] = []
-                    frames[point.frame].append(point)
+            writer = rosbag2_py.SequentialWriter()
 
-                for frame_num in sorted(frames.keys()):
-                    frame_points = frames[frame_num]
+            storage_options = rosbag2_py.StorageOptions(
+                uri=output_path,
+                storage_id='sqlite3'
+            )
 
-                    # Create timestamp
-                    timestamp_ms = frame_points[0].timestamp
-                    t = rospy.Time(secs=timestamp_ms // 1000,
-                                 nsecs=(timestamp_ms % 1000) * 1000000)
+            converter_options = rosbag2_py.ConverterOptions(
+                input_serialization_format='cdr',
+                output_serialization_format='cdr'
+            )
 
-                    # Convert to point cloud
-                    msg = self.to_point_cloud(frame_points)
-                    if msg:
-                        bag.write(topic_name, msg, t)
+            writer.open(storage_options, converter_options)
 
-            print(f" Bag file created: {output_path}")
+            topic_info = rosbag2_py.TopicMetadata(
+                name=topic_name,
+                type='sensor_msgs/msg/PointCloud2',
+                serialization_format='cdr'
+            )
+
+            writer.create_topic(topic_info)
+
+            # Group by frame
+            frames = {}
+            for point in points:
+                if point.frame not in frames:
+                    frames[point.frame] = []
+                frames[point.frame].append(point)
+
+            for frame_num in sorted(frames.keys()):
+                frame_points = frames[frame_num]
+
+                msg = self.to_point_cloud(frame_points)
+                if msg:
+                    timestamp_ns = int(frame_points[0].timestamp * 1e6)  # ms -> ns
+                    writer.write(
+                        topic_name,
+                        serialize_message(msg),
+                        timestamp_ns
+                    )
+
+            print(f" ROS2 bag file created: {output_path}")
             return True
 
         except Exception as e:
-            print(f" Error creating bag file: {e}")
+            print(f" Error creating ROS2 bag file: {e}")
             return False
 
     def inspect_bag(self, bag_path: str) -> None:
 
-        if not Path(bag_path).exists():
-            print(f"Bag file not found: {bag_path}")
-            return
-
-        try:
-            with rosbag.Bag(bag_path, 'r') as bag:
-                print(f"Bag file: {bag_path}")
-                print(f" Duration: {bag.get_end_time() - bag.get_start_time():.2f}s")
-
-                info = bag.get_type_and_message_count()
-                print(f"  Topics: {len(info)}")
-                for topic, (msg_type, msg_count) in info.items():
-                    print(f"    - {topic}: {msg_count} messages ({msg_type})")
-
-                # Show first message
-                for topic, msg, t in bag.read_messages(limit=1):
-                    print(f"\n  First message ({topic}) at {t.to_sec():.3f}s:")
-                    if hasattr(msg, 'width') and hasattr(msg, 'height'):
-                        print(f"    Points: {msg.width * msg.height}")
-
-        except Exception as e:
-            print(f"Error inspecting bag: {e}")
+        print("ROS2 bag inspection not implemented (rosbag2_py has no simple reader API).")
+        print(f"Bag path: {bag_path}")

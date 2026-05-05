@@ -39,8 +39,8 @@ def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag")
     
     # Create bag file
     try:
-        import rosbag
-        print(f"\nCreating bag file: {output_file}")
+        import rosbag2_py
+        print(f"\nCreating ROS2 bag file: {output_file}")
         if parser.to_bag(output_file):
             parser.inspect_bag(output_file)
             return True
@@ -48,8 +48,8 @@ def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag")
             print("Failed to create radar bag file")
             return False
     except ImportError:
-        print("\nROS not installed")
-        print("\nTo use bag file export, install ROS:")
+        print("\nROS2 not installed")
+        print("\nTo use bag file export, install ROS2 (rosbag2_py):")
         return False
 
 
@@ -91,8 +91,8 @@ def convert_imu_to_bag(input_file: str, output_file: str = "imu_output.bag", csv
     
     # Create bag file
     try:
-        import rosbag
-        print(f"\nCreating ROS bag file: {output_file}")
+        import rosbag2_py
+        print(f"\nCreating ROS2 bag file: {output_file}")
         if parser.to_bag(output_file):
             parser.inspect_bag(output_file)
             return True
@@ -100,8 +100,8 @@ def convert_imu_to_bag(input_file: str, output_file: str = "imu_output.bag", csv
             print("Failed to create IMU bag file")
             return False
     except ImportError:
-        print("\nROS not installed")
-        print("\nTo use bag file export, install ROS:")
+        print("\nROS2 not installed")
+        print("\nTo use bag file export, install ROS2:")
         print("  macOS: https://docs.ros.org/en/humble/Installation/macOS-Install-Binary.html")
         print("  Ubuntu: sudo apt install python3-rosbag2 python3-rclpy python3-geometry-msgs")
         return False
@@ -154,10 +154,10 @@ def main():
     print("\n" + "=" * 60)
     if all(results.values()):
         print("All conversions successful!")
-        print("\nTo play the ROS bag files:")
-        print(f"  rosbag play {radar_output}")
-        print(f"  rosbag play {imu_output}")
-        print("\nOr visualize in RViz:")
+        print("\nTo play the ROS2 bag files:")
+        print(f"  ros2 bag play {radar_output}")
+        print(f"  ros2 bag play {imu_output}")
+        print("\nOr visualize in RViz2:")
         print("  rviz2")
         print(f"\nVerify IMU parsing with CSV export:")
         print(f"  Check {imu_csv_export}")
