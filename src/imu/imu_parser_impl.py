@@ -43,12 +43,11 @@ class IMUParser:
             'op_mode', 'lin_acc_switch', 'turn_switch'
         ]
     
-    def parse_binary_file(self, binary_file_path: str) -> List[IMUPoint]:
+    def parse_binary_file(self, IMU_PORT: str, IMU_BAUD: str) -> List[IMUPoint]:
         points = []
         
         try:
-            with open(binary_file_path, 'rb') as f:
-                raw_bytes = f.read()
+            ser = serial.Serial(IMU_PORT,IMU_BAUD)
             
             buffer = bytearray(raw_bytes)
             
@@ -299,7 +298,21 @@ class IMUParser:
         z = cr * cp * sy - sr * sp * cy
 
         return Quaternion(x=x, y=y, z=z, w=w)
+    def _quaternion_from_euler(self, roll, pitch, yaw):
+        """Convert Euler angles (radians) to quaternion."""
+        cy = np.cos(yaw * 0.5)
+        sy = np.sin(yaw * 0.5)
+        cp = np.cos(pitch * 0.5)
+        sp = np.sin(pitch * 0.5)
+        cr = np.cos(roll * 0.5)
+        sr = np.sin(roll * 0.5)
 
+        w = cr * cp * cy + sr * sp * sy
+        x = sr * cp * cy - cr * sp * sy
+        y = cr * sp * cy + sr * cp * sy
+        z = cr * cp * sy - sr * sp * cy
+
+        return Quaternion(x=x, y=y, z=z, w=w)
     def to_imu_message(self, point: IMUPoint, frame_id: str = "imu") -> Imu:
         if not HAS_ROS:
             print("ROS not installed. Cannot create Imu messages.")
@@ -313,9 +326,9 @@ class IMUParser:
 
         # Orientation from Euler angles (roll, pitch, yaw)
         msg.orientation = self._quaternion_from_euler(
-            math.degrees(point.roll),
-            math.degrees(point.pitch),
-            math.degrees(point.yaw)
+            point.roll,
+            point.pitch,
+            point.yaw
         )
         msg.orientation_covariance = [0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01]  # Estimated covariance
 
@@ -367,6 +380,7 @@ class IMUParser:
             writer.open(storage_options, converter_options)
 
             topic_info = rosbag2_py.TopicMetadata(
+                id=0,
                 name=topic_name,
                 type='sensor_msgs/msg/Imu',
                 serialization_format='cdr'

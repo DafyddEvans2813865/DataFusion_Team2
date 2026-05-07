@@ -17,9 +17,9 @@ if __name__ == "__main__":
 
     # Create bag file
     try:
-        import rosbag
-        bag_file = "radar_output.bag"
+        import rosbag2_py
+        bag_file = "radar_output"
         if parser.to_bag(bag_file, points):
             parser.inspect_bag(bag_file)
     except ImportError:
-        print("\n Install ROS to create bag files:")
+        print("\n Install ROS2 to create bag files:")

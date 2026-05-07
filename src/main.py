@@ -53,7 +53,7 @@ def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag")
         return False
 
 
-def convert_imu_to_bag(input_file: str, output_file: str = "imu_output.bag", csv_export: Optional[str] = None) -> bool:
+def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_output.bag", csv_export: Optional[str] = None) -> bool:
     print("\n" + "=" * 60)
     print("IMU DATA CONVERSION (A2 MODE)")
     print("=" * 60)
@@ -65,7 +65,7 @@ def convert_imu_to_bag(input_file: str, output_file: str = "imu_output.bag", csv
         return False
     
     print(f"Parsing IMU A2 Binary from: {input_file}")
-    points = parser.parse_a2_binary_file(input_file)
+    points = parser.parse_a2_binary_file(IMU_PORT, IMU_BAUD)
     
     if not points:
         print("No IMU points parsed")
@@ -117,7 +117,9 @@ def main():
     radar_output = "radar_output.bag"
     
     # Define input/output files IMU 
-    imu_input = "tests/data/example/IMU_Test_Data.bin"
+    #imu_input = "tests/data/example/IMU_Test_Data.bin"
+    IMU_PORT = ''
+    IMU_BAUD = 115200
     imu_output = "imu_output.bag"
     imu_csv_export = "tests/data/example/IMU_Test_Output.csv"  # CSV export for verification
     
@@ -135,7 +137,7 @@ def main():
     # Convert IMU binary data to bag file with verification export
     if Path(imu_input).exists():
         results['imu'] = convert_imu_to_bag(
-            imu_input, 
+            IMU_PORT, 
             imu_output,
             csv_export=imu_csv_export
         )

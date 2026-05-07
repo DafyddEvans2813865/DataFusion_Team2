@@ -200,6 +200,7 @@ class RadarParser:
             writer.open(storage_options, converter_options)
 
             topic_info = rosbag2_py.TopicMetadata(
+                id=0,
                 name=topic_name,
                 type='sensor_msgs/msg/PointCloud2',
                 serialization_format='cdr'

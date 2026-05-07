@@ -22,10 +22,10 @@ if __name__ == "__main__":
 
     # Create bag file
     try:
-        import rosbag
-        bag_file = "imu_output.bag"
+        import rosbag2_py
+        bag_file = "imu_output"
         if parser.to_bag(bag_file):
             print(f"Created ROS bag file: {bag_file}")
     except ImportError:
-        print("\nInstall ROS to create bag files:")
+        print("\nInstall ROS2 to create bag files:")
         print("  pip install rosbag rospy geometry_msgs sensor_msgs")
