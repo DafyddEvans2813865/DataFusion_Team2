@@ -53,19 +53,20 @@ def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag")
         return False
 
 
-def convert_imu_to_bag(input_file: str, IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_output.bag", csv_export: Optional[str] = None) -> bool:
+CAPTURE_DURATION = 20  # seconds
+
+
+def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_output.bag",
+                       csv_export: Optional[str] = None,
+                       duration: float = CAPTURE_DURATION) -> bool:
     print("\n" + "=" * 60)
     print("IMU DATA CONVERSION (A2 MODE)")
     print("=" * 60)
-    
+
     parser = IMUParser()
-    
-    if not Path(input_file).exists():
-        print(f"Input file not found: {input_file}")
-        return False
-    
-    print(f"Parsing IMU A2 Binary from: {input_file}")
-    points = parser.parse_a2_binary_file(input_file)
+
+    print(f"Capturing IMU data from {IMU_PORT} at {IMU_BAUD} baud for {duration}s ...")
+    points = parser.parse_binary_file(IMU_PORT, IMU_BAUD, duration=duration)
     
     if not points:
         print("No IMU points parsed")
@@ -77,9 +78,9 @@ def convert_imu_to_bag(input_file: str, IMU_PORT: str, IMU_BAUD: int, output_fil
     if points:
         time_min = min(p.time for p in points)
         time_max = max(p.time for p in points)
-        duration = time_max - time_min
-        print(f"Time range: {time_min:.2f}s to {time_max:.2f}s (duration: {duration:.2f}s)")
-        print(f"Sample rate: {len(points)/duration:.1f} Hz" if duration > 0 else "")
+        elapsed = time_max - time_min
+        print(f"Time range: {time_min:.2f}s to {time_max:.2f}s (duration: {elapsed:.2f}s)")
+        print(f"Sample rate: {len(points)/elapsed:.1f} Hz" if elapsed > 0 else "")
     
     # Export to CSV for verification if requested
     if csv_export:
@@ -116,9 +117,8 @@ def main():
     radar_input = "tests/data/example/Radar_Test_Data.txt"
     radar_output = "radar_output.bag"
     
-    # Define input/output files IMU 
-    imu_input = "tests/data/example/IMU_Test_Data.bin"
-    IMU_PORT = ''
+    # IMU serial config
+    IMU_PORT = '/dev/ttyUSB0'
     IMU_BAUD = 115200
     imu_output = "imu_output.bag"
     imu_csv_export = "tests/data/example/IMU_Test_Output.csv"  # CSV export for verification
@@ -129,22 +129,18 @@ def main():
     }
     
     # Convert radar data
-    if Path(radar_input).exists():
-        results['radar'] = convert_radar_to_bag(radar_input, radar_output)
-    else:
-        print(f"\nRadar test file not found: {radar_input}")
+
+    results['radar'] = convert_radar_to_bag(radar_input, radar_output)
+
     
-    # Convert IMU binary data to bag file with verification export
-    if Path(imu_input).exists():
-        results['imu'] = convert_imu_to_bag(
-            imu_input,
-            IMU_PORT, 
-            IMU_BAUD,
-            imu_output,
-            csv_export=imu_csv_export
-        )
-    else:
-        print(f"\nIMU test file not found: {imu_input}")
+    # Capture IMU data over serial for CAPTURE_DURATION seconds, then write bag
+    results['imu'] = convert_imu_to_bag(
+        IMU_PORT,
+        IMU_BAUD,
+        imu_output,
+        csv_export=imu_csv_export,
+        duration=CAPTURE_DURATION,
+    )
     
     # Summary
     print("\n" + "=" * 60)
@@ -163,6 +159,8 @@ def main():
         print(f"  ros2 bag play {imu_output}")
         print("\nOr visualize in RViz2:")
         print("  rviz2")
+        print(f"\nVerify IMU parsing with CSV export:")
+        print(f"  Check {imu_csv_export}")
         return 0
     elif any(results.values()):
         print("Some conversions completed, but not all succeeded")
