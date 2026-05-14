@@ -170,7 +170,6 @@ class RadarParser:
         msg.is_dense = True
 
         msg.data = points_array.tobytes()
-
         return msg
 
     def to_bag(self, output_path: str, topic_name: str = "/radar/points") -> bool:

@@ -43,90 +43,154 @@ class IMUParser:
             'op_mode', 'lin_acc_switch', 'turn_switch'
         ]
     
-    def parse_binary_file(self, IMU_PORT: str, IMU_BAUD: str) -> List[IMUPoint]:
-        points = []
-        
+    # A2 packet constants
+    A2_PACKET_TYPE = b'a2'
+    A2_PAYLOAD_LEN = 0x30  # 48 bytes: uint32 seq + double time + 9x float32
+
+    @staticmethod
+    def _calc_crc(data: bytes) -> int:
+        """CRC-CCITT (0x1D0F) used by OpenIMU A2 packets."""
+        crc = 0x1D0F
+        for byte in data:
+            crc ^= byte << 8
+            for _ in range(8):
+                if crc & 0x8000:
+                    crc = (crc << 1) ^ 0x1021
+                else:
+                    crc <<= 1
+            crc &= 0xFFFF
+        return crc
+
+    @staticmethod
+    def _parse_a2_payload(payload: bytes) -> dict:
+        """
+        A2 payload = 48 bytes, little-endian:
+          bytes 0-3  : uint32  sequence counter
+          bytes 4-11 : double  GPS time (seconds)
+          bytes 12-47: 9x float32  roll, pitch, yaw, xRate, yRate, zRate,
+                                   xAccel, yAccel, zAccel
+        """
+        seq,  = struct.unpack_from('<I', payload, 0)
+        t,    = struct.unpack_from('<d', payload, 4)
+        vals  = struct.unpack_from('<9f', payload, 12)
+        return {
+            'seq':    seq,
+            'time':   t,
+            'roll':   vals[0],
+            'pitch':  vals[1],
+            'yaw':    vals[2],
+            'xRate':  vals[3],
+            'yRate':  vals[4],
+            'zRate':  vals[5],
+            'xAccel': vals[6],
+            'yAccel': vals[7],
+            'zAccel': vals[8],
+        }
+
+    def _sync_to_packet(self, ser) -> bool:
+        """Scan the serial stream until the 0x55 0x55 sync bytes are found."""
+        b = ser.read(1)
+        if b and b[0] == 0x55:
+            b = ser.read(1)
+            if b and b[0] == 0x55:
+                return True
+        return False
+
+    def _read_a2_packet(self, ser):
+        """Read one A2 packet from serial (call after sync bytes consumed)."""
+        ptype = ser.read(2)
+        if len(ptype) < 2 or ptype != self.A2_PACKET_TYPE:
+            return None
+
+        plen_b = ser.read(1)
+        if not plen_b or plen_b[0] != self.A2_PAYLOAD_LEN:
+            return None
+
+        payload = ser.read(self.A2_PAYLOAD_LEN)
+        if len(payload) < self.A2_PAYLOAD_LEN:
+            return None
+
+        crc_b = ser.read(2)
+        if len(crc_b) < 2:
+            return None
+
+        crc_rx   = struct.unpack('>H', crc_b)[0]
+        crc_calc = self._calc_crc(ptype + plen_b + payload)
+        if crc_calc != crc_rx:
+            return None
+
+        return self._parse_a2_payload(payload)
+
+    def parse_binary_file(self, IMU_PORT: str, IMU_BAUD: int,
+                          duration: Optional[float] = None,
+                          timeout: float = 1.0) -> List[IMUPoint]:
+        """Stream A2 packets from a live serial port and return parsed IMUPoints.
+
+        Args:
+            IMU_PORT:  Serial port, e.g. '/dev/ttyUSB0'
+            IMU_BAUD:  Baud rate, e.g. 115200
+            duration:  Stop automatically after this many seconds (None = run
+                       until KeyboardInterrupt).
+            timeout:   Per-read serial timeout in seconds.
+        """
+        import serial as _serial
+        import time as _time
+
+        points  = []
+        errors  = 0
+        deadline = _time.monotonic() + duration if duration is not None else None
+
         try:
-            ser = serial.Serial(IMU_PORT,IMU_BAUD)
-            
-            buffer = bytearray(raw_bytes)
-            
-            while buffer:
-                # Find header
-                start = buffer.find(self.IMU_HEADER)
-                if start == -1:
-                    break
-                
-                # Need at least 5 bytes: header(2) + type(2) + length(1)
-                if len(buffer) < start + 5:
-                    break
-                
-                # Align buffer to header
-                if start > 0:
-                    buffer = buffer[start:]
-                
-                if len(buffer) < 5:
-                    break
-                
-                # Extract length at offset 4
-                length = buffer[4]
-                
-                # Full packet: header(2) + type(2) + length(1) + payload(length) + checksum(2)
-                total_len = 5 + length + 2
-                
-                # Ensure we have full packet
-                if len(buffer) < total_len:
-                    break
-                
-                # Extract payload
-                payload = buffer[5:5+self.imu_size]
-                
-                if len(payload) < self.imu_size:
-                    buffer = buffer[1:]
-                    continue
-                
-                try:
-                    values = struct.unpack(self.IMU_FMT, payload[:self.imu_size])
-                    
-                    # Create IMUPoint from parsed values
+            with _serial.Serial(IMU_PORT, IMU_BAUD, timeout=timeout) as ser:
+                ser.reset_input_buffer()
+                print(f"Streaming from {IMU_PORT} at {IMU_BAUD} baud"
+                      + (f" for {duration:.0f}s …" if duration else " (Ctrl-C to stop) …"))
+
+                while True:
+                    if deadline is not None and _time.monotonic() >= deadline:
+                        print(f"\nCapture complete ({duration:.0f}s).")
+                        break
+
+                    if not self._sync_to_packet(ser):
+                        errors += 1
+                        continue
+
+                    pkt = self._read_a2_packet(ser)
+                    if pkt is None:
+                        errors += 1
+                        continue
+
                     point = IMUPoint(
-                        time_counter=values[0],
-                        time=values[1],
-                        roll=values[2],
-                        pitch=values[3],
-                        yaw=values[4],
-                        x_accel=values[5],
-                        y_accel=values[6],
-                        z_accel=values[7],
-                        x_rate=values[8],
-                        y_rate=values[9],
-                        z_rate=values[10],
-                        x_rate_bias=values[11],
-                        y_rate_bias=values[12],
-                        z_rate_bias=values[13],
-                        x_mag=values[14],
-                        y_mag=values[15],
-                        z_mag=values[16],
-                        op_mode=values[17],
-                        lin_acc_switch=values[18],
-                        turn_switch=values[19]
+                        time_counter=pkt['seq'],
+                        time=pkt['time'],
+                        roll=pkt['roll'],
+                        pitch=pkt['pitch'],
+                        yaw=pkt['yaw'],
+                        x_accel=pkt['xAccel'],
+                        y_accel=pkt['yAccel'],
+                        z_accel=pkt['zAccel'],
+                        x_rate=pkt['xRate'],
+                        y_rate=pkt['yRate'],
+                        z_rate=pkt['zRate'],
+                        x_rate_bias=0.0,
+                        y_rate_bias=0.0,
+                        z_rate_bias=0.0,
+                        x_mag=0.0,
+                        y_mag=0.0,
+                        z_mag=0.0,
+                        op_mode=0,
+                        lin_acc_switch=0,
+                        turn_switch=0,
                     )
                     points.append(point)
-                
-                except struct.error as e:
-                    print(f"IMU parse error: {e}")
-                
-                # Move to next packet
-                buffer = buffer[total_len:]
-        
-        
-        except FileNotFoundError:
-            print(f"File not found: {binary_file_path}")
-            return []
+
+        except KeyboardInterrupt:
+            print(f"\nStopped by user.")
         except Exception as e:
-            print(f"Error parsing IMU file: {e}")
+            print(f"Error reading from serial port: {e}")
             return []
-        
+
+        print(f"Captured {len(points):,} packets | Errors: {errors:,}")
         self.points = points
         return points
 
