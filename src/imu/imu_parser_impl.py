@@ -35,12 +35,9 @@ class IMUParser:
         self.imu_size = struct.calcsize(self.IMU_FMT)
         self.imu_fields = [
             'time_counter', 'time',
-            'roll', 'pitch', 'yaw',
+            'qx', 'qy', 'qz', 'qw',
             'x_accel', 'y_accel', 'z_accel',
-            'x_rate', 'y_rate', 'z_rate',
-            'x_rate_bias', 'y_rate_bias', 'z_rate_bias',
-            'x_mag', 'y_mag', 'z_mag',
-            'op_mode', 'lin_acc_switch', 'turn_switch'
+            'x_rate', 'y_rate', 'z_rate'
         ]
     
     # A2 packet constants
@@ -121,247 +118,6 @@ class IMUParser:
 
         return self._parse_a2_payload(payload)
 
-    def parse_binary_file(self, IMU_PORT: str, IMU_BAUD: int,
-                          duration: Optional[float] = None,
-                          timeout: float = 1.0) -> List[IMUPoint]:
-        """Stream A2 packets from a live serial port and return parsed IMUPoints.
-
-        Args:
-            IMU_PORT:  Serial port, e.g. '/dev/ttyUSB0'
-            IMU_BAUD:  Baud rate, e.g. 115200
-            duration:  Stop automatically after this many seconds (None = run
-                       until KeyboardInterrupt).
-            timeout:   Per-read serial timeout in seconds.
-        """
-        import serial as _serial
-        import time as _time
-
-        points  = []
-        errors  = 0
-        deadline = _time.monotonic() + duration if duration is not None else None
-
-        try:
-            with _serial.Serial(IMU_PORT, IMU_BAUD, timeout=timeout) as ser:
-                ser.reset_input_buffer()
-                print(f"Streaming from {IMU_PORT} at {IMU_BAUD} baud"
-                      + (f" for {duration:.0f}s …" if duration else " (Ctrl-C to stop) …"))
-
-                while True:
-                    if deadline is not None and _time.monotonic() >= deadline:
-                        print(f"\nCapture complete ({duration:.0f}s).")
-                        break
-
-                    if not self._sync_to_packet(ser):
-                        errors += 1
-                        continue
-
-                    pkt = self._read_a2_packet(ser)
-                    if pkt is None:
-                        errors += 1
-                        continue
-
-                    point = IMUPoint(
-                        time_counter=pkt['seq'],
-                        time=pkt['time'],
-                        roll=pkt['roll'],
-                        pitch=pkt['pitch'],
-                        yaw=pkt['yaw'],
-                        x_accel=pkt['xAccel'],
-                        y_accel=pkt['yAccel'],
-                        z_accel=pkt['zAccel'],
-                        x_rate=pkt['xRate'],
-                        y_rate=pkt['yRate'],
-                        z_rate=pkt['zRate'],
-                        x_rate_bias=0.0,
-                        y_rate_bias=0.0,
-                        z_rate_bias=0.0,
-                        x_mag=0.0,
-                        y_mag=0.0,
-                        z_mag=0.0,
-                        op_mode=0,
-                        lin_acc_switch=0,
-                        turn_switch=0,
-                    )
-                    points.append(point)
-
-        except KeyboardInterrupt:
-            print(f"\nStopped by user.")
-        except Exception as e:
-            print(f"Error reading from serial port: {e}")
-            return []
-
-        print(f"Captured {len(points):,} packets | Errors: {errors:,}")
-        self.points = points
-        return points
-
-
-
-    def parse_a2_binary_file(self, binary_file_path: str) -> List[IMUPoint]:
-        """Parse A2 mode binary file with stationary_A2 packet format.
-        
-        Binary format: Each packet is 55 bytes
-        - Header (5 bytes): 0x55 0x55 0x61 0x32 0x30 ("UUa20")
-        - Payload (50 bytes): Sensor data in binary format
-        
-        Payload structure (50 bytes = 12 floats + 2 bytes):
-        - Float 0: Reserved/timestamp_ms (converted to time_counter)
-        - Float 1-11: Data fields (roll, pitch, heading, rates, accels, etc.)
-        """
-        points = []
-        
-        try:
-            with open(binary_file_path, 'rb') as f:
-                binary_data = f.read()
-            
-            # Each packet is 55 bytes: 5-byte header + 50-byte payload
-            packet_size = 55
-            header = b'UUa20'
-            
-            offset = 0
-            packet_num = 0
-            
-            while offset + packet_size <= len(binary_data):
-                # Check for valid header
-                if binary_data[offset:offset+5] != header:
-                    offset += 1
-                    continue
-                
-                try:
-                    # Parse payload (50 bytes = 12 floats + 2 padding bytes)
-                    payload_start = offset + 5
-                    payload = binary_data[payload_start:payload_start+48]
-                    
-                    if len(payload) < 48:
-                        break
-                    
-                    # Unpack 12 float values
-                    values = struct.unpack('<12f', payload)
-                    
-                    # Map values to IMU fields
-                    # Based on observed data: values[5] ≈ heading, values[11] ≈ zAccel
-                    # Mapping is: [reserved, reserved, roll, pitch, ?, heading, xRate, yRate, zRate, xAccel, yAccel, zAccel]
-                    roll_deg = values[2]
-                    pitch_deg = values[3]
-                    heading_deg = values[5]
-                    x_rate = values[6]
-                    y_rate = values[7]
-                    z_rate = values[8]
-                    x_accel = values[9]
-                    y_accel = values[10]
-                    z_accel = values[11]
-                    
-                    # Generate time counter from packet number (assuming ~100 Hz)
-                    time_counter = 209130 + (packet_num * 10)  # 10 ms per packet
-                    time = time_counter / 1000.0
-                    
-                    # Convert angles from degrees to radians
-                    roll = math.radians(roll_deg)
-                    pitch = math.radians(pitch_deg)
-                    yaw = math.radians(heading_deg)
-                    
-                    # Create IMUPoint
-                    point = IMUPoint(
-                        time_counter=time_counter,
-                        time=time,
-                        roll=roll,
-                        pitch=pitch,
-                        yaw=yaw,
-                        x_accel=x_accel,
-                        y_accel=y_accel,
-                        z_accel=z_accel,
-                        x_rate=x_rate,
-                        y_rate=y_rate,
-                        z_rate=z_rate,
-                        x_rate_bias=0.0,
-                        y_rate_bias=0.0,
-                        z_rate_bias=0.0,
-                        x_mag=0.0,
-                        y_mag=0.0,
-                        z_mag=0.0,
-                        op_mode=0,
-                        lin_acc_switch=0,
-                        turn_switch=0
-                    )
-                    points.append(point)
-                    packet_num += 1
-                    
-                except struct.error as e:
-                    print(f"Warning: Error unpacking packet at offset {offset}: {e}")
-                
-                offset += packet_size
-            
-            print(f"Successfully parsed {len(points)} packets from A2 binary file")
-            
-        except FileNotFoundError:
-            print(f"File not found: {binary_file_path}")
-            return []
-        except Exception as e:
-            print(f"Error parsing A2 binary file: {e}")
-            return []
-        
-        self.points = points
-        return points
-
-    def to_csv(self, output_file: str) -> bool:
-        """Export parsed IMU points to CSV format for verification.
-        
-        Exports all parsed data points with angles in degrees and rates in deg/s.
-        """
-        if not self.points:
-            print("No points to export")
-            return False
-        
-        try:
-            with open(output_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                
-                # Write header
-                writer.writerow([
-                    'timeITOW (msec)', 'time (s)', 'roll (deg)', 'pitch (deg)', 'heading (deg)',
-                    'xRate (rad/s)', 'yRate (deg/s)', 'zRate (deg/s)',
-                    'xAccel (m/s^2)', 'yAccel (m/s^2)', 'zAccel (m/s^2)'
-                ])
-                
-                # Write data rows
-                for point in self.points:
-                    writer.writerow([
-                        point.time_counter,
-                        f"{point.time:.2f}",
-                        f"{math.degrees(point.roll):.4f}",
-                        f"{math.degrees(point.pitch):.4f}",
-                        f"{math.degrees(point.yaw):.4f}",
-                        f"{point.x_rate:.4f}",
-                        f"{math.degrees(point.y_rate):.4f}",
-                        f"{math.degrees(point.z_rate):.4f}",
-                        f"{point.x_accel:.4f}",
-                        f"{point.y_accel:.4f}",
-                        f"{point.z_accel:.4f}"
-                    ])
-            
-            print(f"Successfully exported {len(self.points)} points to: {output_file}")
-            return True
-            
-        except Exception as e:
-            print(f"Error exporting to CSV: {e}")
-            return False
-        #Convert Euler to radians.
-        if not HAS_ROS:
-            return None
-
-        # Half angles
-        cy = np.cos(yaw * 0.5)
-        sy = np.sin(yaw * 0.5)
-        cp = np.cos(pitch * 0.5)
-        sp = np.sin(pitch * 0.5)
-        cr = np.cos(roll * 0.5)
-        sr = np.sin(roll * 0.5)
-
-        w = cr * cp * cy + sr * sp * sy
-        x = sr * cp * cy - cr * sp * sy
-        y = cr * sp * cy + sr * cp * sy
-        z = cr * cp * sy - sr * sp * cy
-
-        return Quaternion(x=x, y=y, z=z, w=w)
     def _quaternion_from_euler(self, roll, pitch, yaw):
         """Convert Euler angles (radians) to quaternion."""
         cy = np.cos(yaw * 0.5)
@@ -371,16 +127,14 @@ class IMUParser:
         cr = np.cos(roll * 0.5)
         sr = np.sin(roll * 0.5)
 
-        w = cr * cp * cy + sr * sp * sy
-        x = sr * cp * cy - cr * sp * sy
-        y = cr * sp * cy + sr * cp * sy
-        z = cr * cp * sy - sr * sp * cy
-
-        return Quaternion(x=x, y=y, z=z, w=w)
+        qw = cr * cp * cy + sr * sp * sy
+        qx = sr * cp * cy - cr * sp * sy
+        qy = cr * sp * cy + sr * cp * sy
+        qz = cr * cp * sy - sr * sp * cy
+        
+        return qx, qy, qz, qw
+    
     def to_imu_message(self, point: IMUPoint, frame_id: str = "imu") -> Imu:
-        if not HAS_ROS:
-            print("ROS not installed. Cannot create Imu messages.")
-            return None
 
         msg = Imu()
         msg.header = Header()
@@ -388,13 +142,9 @@ class IMUParser:
         msg.header.stamp.nanosec = int((point.time % 1) * 1e9)
         msg.header.frame_id = frame_id
 
-        # Orientation from Euler angles (roll, pitch, yaw)
-        msg.orientation = self._quaternion_from_euler(
-            point.roll,
-            point.pitch,
-            point.yaw
-        )
-        msg.orientation_covariance = [0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01]  # Estimated covariance
+        # Orientation from stored quaternion
+        msg.orientation = Quaternion(x=point.qx, y=point.qy, z=point.qz, w=point.qw)
+        msg.orientation_covariance = [0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01]
 
         # Angular velocity (rad/s) - convert from radians if needed
         msg.angular_velocity = Vector3(
@@ -403,65 +153,97 @@ class IMUParser:
             z=point.z_rate
         )
 
-        # Covariance for angular velocity (row-major about x, y, z axes)
+        # Covariance for angular velocity (row-major about x, y, z axes) - ROS uses this weight in filtering 
         msg.angular_velocity_covariance = [0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01]
 
         # Linear acceleration (m/s^2)
-        msg.linear_acceleration = Vector3(
-            x=point.x_accel,
-            y=point.y_accel,
-            z=point.z_accel
-        )
-        # Covariance for linear acceleration (row-major x, y, z)
+        msg.linear_acceleration = Vector3(x=point.x_accel,y=point.y_accel,z=point.z_accel)
+
+        # Covariance for linear acceleration (row-major x, y, z) - ROS uses this weight in filtering 
         msg.linear_acceleration_covariance = [0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.01]
 
         return msg
 
-    def to_bag(self, output_path: str, topic_name: str = "/imu/data") -> bool:
-        if not HAS_ROS:
-            print("ROS not installed. Cannot create bag files.")
-            return False
-
-        points = self.points
-
-        if not points:
-            print("No points to write")
-            return False
+    def to_bag(self, output_path: str, topic_name: str = "/imu/data", serial_port=None) -> bool:
 
         try:
+
+            #inital creation of bag
             writer = rosbag2_py.SequentialWriter()
-
-            storage_options = rosbag2_py.StorageOptions(
-                uri=output_path,
-                storage_id='sqlite3'
-            )
-
-            converter_options = rosbag2_py.ConverterOptions(
-                input_serialization_format='cdr',
-                output_serialization_format='cdr'
-            )
-
+            storage_options = rosbag2_py.StorageOptions(uri=output_path,storage_id='sqlite3')
+            converter_options = rosbag2_py.ConverterOptions(input_serialization_format='cdr',output_serialization_format='cdr')
             writer.open(storage_options, converter_options)
+            topic_info = rosbag2_py.TopicMetadata(id=0,name=topic_name,type='sensor_msgs/msg/Imu',serialization_format='cdr')
+            writer.create_topic(topic_info) 
 
-            topic_info = rosbag2_py.TopicMetadata(
-                id=0,
-                name=topic_name,
-                type='sensor_msgs/msg/Imu',
-                serialization_format='cdr'
-            )
-
-            writer.create_topic(topic_info)
-
-            for point in points:
-                msg = self.to_imu_message(point)
-                if msg:
-                    timestamp_ns = int(point.time * 1e9)
-                    writer.write(
-                        topic_name,
-                        serialize_message(msg),
-                        timestamp_ns
-                    )
-
+            # Stream from serial port continuously
+            if serial_port:                 
+                packet_count = 0
+                header = b'UUa20'
+                packet_size = 55
+                buffer = bytearray()
+        
+                try:
+                    while True:
+                        byte = serial_port.read(1) #read a byte 
+                        if not byte:
+                            continue
+                        
+                        buffer.extend(byte)
+                        
+                        # Look for header
+                        if buffer[0:5] != header: #on loops worst case O(1) (find has worst O(n))
+                            idx = buffer.find(header)
+                            if idx > 0:
+                                buffer = buffer[idx:]
+                        
+                        # Check if we have complete packet - if so extract and remove from buffer 
+                        if len(buffer) >= packet_size:
+                            packet = bytes(buffer[:packet_size])
+                            buffer = buffer[packet_size:]
+                            
+                            try:
+                                if packet[0:5] == header:
+                                    payload = packet[5:53]
+                                    if len(payload) >= 48:
+                                        values = struct.unpack('<12f', payload[:48])
+                                        
+                                        # Extract Euler angles and convert to quaternion 
+                                        roll_rad = math.radians(values[2])
+                                        pitch_rad = math.radians(values[3])
+                                        yaw_rad = math.radians(values[5])
+                                        qx, qy, qz, qw = self._quaternion_from_euler(roll_rad, pitch_rad, yaw_rad)
+                                        
+                                        point = IMUPoint(
+                                            time_counter=int(values[0]),
+                                            time=values[0] / 1000.0,
+                                            qx=qx,
+                                            qy=qy,
+                                            qz=qz,
+                                            qw=qw,
+                                            x_accel=values[9],
+                                            y_accel=values[10],
+                                            z_accel=values[11],
+                                            x_rate=values[6],
+                                            y_rate=values[7],
+                                            z_rate=values[8]
+                                        )
+                                        
+                                        msg = self.to_imu_message(point)
+                                        if msg:
+                                            timestamp_ns = int(point.time * 1e9)
+                                            writer.write(topic_name, serialize_message(msg), timestamp_ns)
+                                            packet_count += 1
+                                            
+                                            #DEBUG every 100 packets 
+                                            if packet_count % 100 == 0:
+                                                print(f"Recorded {packet_count} packets...")
+                            except struct.error:
+                                pass
+                
+                except KeyboardInterrupt:
+                    print("\nStopped by user")
+                print(f"Total packets recorded: {packet_count}")
             print(f"ROS2 bag file created: {output_path}")
             return True
 
