@@ -25,7 +25,7 @@ except ImportError:
     rclpy = None
 
 
-class IMUParserMultithread:
+class IMUParser:
     # IMU packet structure: [0x55 0x55][type(2)][length(1)][payload][checksum(2)]
     IMU_FMT = '<IdfffffffffffffffBBB'
     IMU_HEADER = b'\x55\x55'
