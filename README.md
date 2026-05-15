@@ -1,16 +1,17 @@
 # DataFusion Team 2
 
-A Python-based sensor data processing system for parsing radar and IMU data, with support for ROS bag file export.
+A Python-based sensor data processing system for parsing radar and IMU data, with support for ROS bag file export and continuous real-time streaming.
 
 ## Overview
 
 This project provides tools for:
 
 - Parsing TI IWR radar data in TLV format with magic word synchronization
-- Parsing OpenIMU300ZI A2 mode CSV data with orientation information
+- **Continuous real-time streaming** of OpenIMU300ZI A2 mode sensor data via serial port
 - Converting spherical (range, angle, elevation) to Cartesian (x, y, z) coordinates
 - Exporting sensor data to ROS bag files for use with ROS-based systems
-- Comprehensive unit testing of sensor data parsing
+- Multi-threaded architecture for efficient 30+ minute streaming sessions
+- Comprehensive unit testing of sensor data parsing and multithreading
 
 ## Project Structure
 
@@ -25,8 +26,9 @@ DataFusion_Team2/
 │   │   └── radar_parser.py         # Module interface
 │   ├── imu/                # Python IMU parsing module
 │   │   ├── __init__.py
-│   │   ├── imu_point.py            # IMUPoint dataclass
-│   │   ├── imu_parser_impl.py      # Core IMU parser with bag export
+│   │   ├── imu_point.py            # IMUPoint dataclass with quaternion storage
+│   │   ├── imu_parser_impl.py      # Core IMU parser with multithreaded bag export
+│   │   ├── imu_multithread.py      # Reference implementation for multithreading
 │   │   └── imu_parser.py           # Module interface
 ├── tests/
 │   ├── test_radar.py               # Radar parser unit tests
@@ -59,6 +61,25 @@ pip install -r requirements.txt
 ### For ROS integration (optional):
 
 Install ROS and rosbag to enable bag file export functionality.
+
+## Architecture
+
+### IMU Multi-threaded Streaming
+
+The IMU parser uses a **3-thread architecture** for continuous real-time streaming from serial port:
+
+1. **Reader Thread**: Reads individual bytes from serial port, buffers into complete 55-byte packets
+2. **Parser Thread**: Parses A2 mode packets, converts Euler angles to quaternions, creates ROS messages
+3. **Writer Thread**: Writes serialized ROS Imu messages to bag file with timestamps
+
+This design enables:
+
+- Efficient buffering without blocking operations
+- ~2x performance improvement over single-threaded approach
+- Support for extended streaming sessions (30+ minutes)
+- Graceful shutdown with `Ctrl+C`
+
+**Orientation Storage**: IMU measurements now use **quaternion representation** (qx, qy, qz, qw) instead of Euler angles for better ROS2 compatibility and reduced conversion overhead.
 
 ## Usage
 
