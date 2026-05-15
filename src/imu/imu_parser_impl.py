@@ -33,12 +33,7 @@ class IMUParser:
     def __init__(self):
         self.points: List[IMUPoint] = []
         self.imu_size = struct.calcsize(self.IMU_FMT)
-        self.imu_fields = [
-            'time_counter', 'time',
-            'qx', 'qy', 'qz', 'qw',
-            'x_accel', 'y_accel', 'z_accel',
-            'x_rate', 'y_rate', 'z_rate'
-        ]
+        self.imu_fields = [ 'time_counter', 'time', 'qx', 'qy', 'qz', 'qw', 'x_accel', 'y_accel', 'z_accel','x_rate', 'y_rate', 'z_rate']
     
     # A2 packet constants
     A2_PACKET_TYPE = b'a2'
@@ -83,40 +78,6 @@ class IMUParser:
             'yAccel': vals[7],
             'zAccel': vals[8],
         }
-
-    def _sync_to_packet(self, ser) -> bool:
-        """Scan the serial stream until the 0x55 0x55 sync bytes are found."""
-        b = ser.read(1)
-        if b and b[0] == 0x55:
-            b = ser.read(1)
-            if b and b[0] == 0x55:
-                return True
-        return False
-
-    def _read_a2_packet(self, ser):
-        """Read one A2 packet from serial (call after sync bytes consumed)."""
-        ptype = ser.read(2)
-        if len(ptype) < 2 or ptype != self.A2_PACKET_TYPE:
-            return None
-
-        plen_b = ser.read(1)
-        if not plen_b or plen_b[0] != self.A2_PAYLOAD_LEN:
-            return None
-
-        payload = ser.read(self.A2_PAYLOAD_LEN)
-        if len(payload) < self.A2_PAYLOAD_LEN:
-            return None
-
-        crc_b = ser.read(2)
-        if len(crc_b) < 2:
-            return None
-
-        crc_rx   = struct.unpack('>H', crc_b)[0]
-        crc_calc = self._calc_crc(ptype + plen_b + payload)
-        if crc_calc != crc_rx:
-            return None
-
-        return self._parse_a2_payload(payload)
 
     def _quaternion_from_euler(self, roll, pitch, yaw):
         """Convert Euler angles (radians) to quaternion."""
