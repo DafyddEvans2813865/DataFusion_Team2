@@ -1,9 +1,9 @@
 import struct
-import csv
 import math
 import numpy as np
-from pathlib import Path
-from typing import List, Optional
+from typing import List
+import threading
+import queue
 
 from .imu_point import IMUPoint
 
@@ -25,7 +25,7 @@ except ImportError:
     rclpy = None
 
 
-class IMUParser:
+class IMUParserMultithread:
     # IMU packet structure: [0x55 0x55][type(2)][length(1)][payload][checksum(2)]
     IMU_FMT = '<IdfffffffffffffffBBB'
     IMU_HEADER = b'\x55\x55'
@@ -125,93 +125,135 @@ class IMUParser:
 
         return msg
 
-    def to_bag(self, output_path: str, topic_name: str = "/imu/data", serial_port=None) -> bool:
+def to_bag_multithreaded(self, output_path, topic_name, serial_port):
 
+    raw_packet_queue = queue.Queue(maxsize=1000)
+    msg_queue = queue.Queue(maxsize=500)
+    stop_event = threading.Event()
+
+    #Creating and starting threads
+    threads_list = []
+    threads_list.append(threading.Thread(target=self._reader_worker,args=(serial_port, raw_packet_queue, stop_event),daemon=False))
+    threads_list.append(threading.Thread(target=self._parser_worker,args=(raw_packet_queue, msg_queue, stop_event),daemon=False))
+    threads_list.append(threading.Thread(target=self._writer_worker,args=(msg_queue,output_path,topic_name,stop_event),daemon=False))
+
+    for thread in threads_list:
+        thread.start()
+    try:
+        for thread in threads_list:
+            thread.join()
+    except KeyboardInterrupt:
+        print("Stopping...")
+        stop_event.set()
+        for thread in threads_list:
+            thread.join()
+
+    return True
+
+def _reader_worker(self, serial_port, packet_queue, stop_event):
+    buffer = bytearray()
+    header = b'UUa20'
+    packet_size = 55
+
+    while not stop_event.is_set():
+        # Read 1 byte
+        byte = serial_port.read(1)
+        if not byte:
+            continue
+
+        # Add to buffer
+        buffer.extend(byte)
+
+        # Sync to header (if not already synced)
+        if buffer[0:5] != header:
+            idx = buffer.find(header)
+            if idx > 0:
+                buffer = buffer[idx:]
+
+        # Got packet?
+        if len(buffer) >= packet_size:
+            packet = bytes(buffer[:packet_size])
+            buffer = buffer[packet_size:]
+
+            # Put packet in queue
+            try:
+                packet_queue.put(packet, timeout=1)
+            except queue.Full:
+                print("Packet queue full!")
+
+def _parser_worker(self, packet_queue, msg_queue, stop_event):
+    while not stop_event.is_set():
         try:
+            # Get packet from queue
+            packet = packet_queue.get(timeout=1)
 
-            #inital creation of bag
-            writer = rosbag2_py.SequentialWriter()
-            storage_options = rosbag2_py.StorageOptions(uri=output_path,storage_id='sqlite3')
-            converter_options = rosbag2_py.ConverterOptions(input_serialization_format='cdr',output_serialization_format='cdr')
-            writer.open(storage_options, converter_options)
-            topic_info = rosbag2_py.TopicMetadata(id=0,name=topic_name,type='sensor_msgs/msg/Imu',serialization_format='cdr')
-            writer.create_topic(topic_info) 
+            # Extract payload (skip header)
+            payload = packet[5:53]
 
-            # Stream from serial port continuously
-            if serial_port:                 
-                packet_count = 0
-                header = b'UUa20'
-                packet_size = 55
-                buffer = bytearray()
-        
-                try:
-                    while True:
-                        byte = serial_port.read(1) #read a byte 
-                        if not byte:
-                            continue
-                        
-                        buffer.extend(byte)
-                        
-                        # Look for header
-                        if buffer[0:5] != header: #on loops worst case O(1) (find has worst O(n))
-                            idx = buffer.find(header)
-                            if idx > 0:
-                                buffer = buffer[idx:]
-                        
-                        # Check if we have complete packet - if so extract and remove from buffer 
-                        if len(buffer) >= packet_size:
-                            packet = bytes(buffer[:packet_size])
-                            buffer = buffer[packet_size:]
-                            
-                            try:
-                                if packet[0:5] == header:
-                                    payload = packet[5:53]
-                                    if len(payload) >= 48:
-                                        values = struct.unpack('<12f', payload[:48])
-                                        
-                                        # Extract Euler angles and convert to quaternion 
-                                        roll_rad = math.radians(values[2])
-                                        pitch_rad = math.radians(values[3])
-                                        yaw_rad = math.radians(values[5])
-                                        qx, qy, qz, qw = self._quaternion_from_euler(roll_rad, pitch_rad, yaw_rad)
-                                        
-                                        point = IMUPoint(
-                                            time_counter=int(values[0]),
-                                            time=values[0] / 1000.0,
-                                            qx=qx,
-                                            qy=qy,
-                                            qz=qz,
-                                            qw=qw,
-                                            x_accel=values[9],
-                                            y_accel=values[10],
-                                            z_accel=values[11],
-                                            x_rate=values[6],
-                                            y_rate=values[7],
-                                            z_rate=values[8]
-                                        )
-                                        
-                                        msg = self.to_imu_message(point)
-                                        if msg:
-                                            timestamp_ns = int(point.time * 1e9)
-                                            writer.write(topic_name, serialize_message(msg), timestamp_ns)
-                                            packet_count += 1
-                                            
-                                            #DEBUG every 100 packets 
-                                            if packet_count % 100 == 0:
-                                                print(f"Recorded {packet_count} packets...")
-                            except struct.error:
-                                pass
-                
-                except KeyboardInterrupt:
-                    print("\nStopped by user")
-                print(f"Total packets recorded: {packet_count}")
-            print(f"ROS2 bag file created: {output_path}")
-            return True
+            # Unpack payload (uint32 + double + 9 floats)
+            seq, = struct.unpack_from('<I', payload, 0)
+            t, = struct.unpack_from('<d', payload, 4)
+            vals = struct.unpack_from('<9f', payload, 12)
 
-        except Exception as e:
-            print(f"Error creating ROS2 bag file: {e}")
-            return False
+            # Reorganize [seq, t, roll, pitch, yaw, xRate, yRate, zRate, xAccel, yAccel, zAccel]
+            values = (seq, t) + vals
 
-    def inspect_bag(self, bag_path: str) -> None:
-        print("ROS2 bag inspection not implemented (rosbag2_py has no simple reader API).")
-        print(f"Bag path: {bag_path}")
+            # Extract Euler angles from values
+            roll_rad = math.radians(values[2])
+            pitch_rad = math.radians(values[3])
+            yaw_rad = math.radians(values[5])
+
+            # Convert to quaternion
+            qx, qy, qz, qw = self._quaternion_from_euler(roll_rad, pitch_rad, yaw_rad)
+
+            # Create IMUPoint
+            point = IMUPoint(
+                time_counter=int(values[0]),
+                time=values[0] / 1000.0,
+                qx=qx, qy=qy, qz=qz, qw=qw,
+                x_accel=values[9],
+                y_accel=values[10],
+                z_accel=values[11],
+                x_rate=values[6],
+                y_rate=values[7],
+                z_rate=values[8]
+            )
+
+            # Convert to ROS message
+            msg = self.to_imu_message(point)
+            timestamp_ns = int(point.time * 1e9)
+            serialized = serialize_message(msg)
+
+            # Put into writer queue
+            msg_queue.put((serialized, timestamp_ns), timeout=1)
+
+        except queue.Empty:
+            continue
+        except struct.error:
+            pass
+
+def _writer_worker(self, msg_queue, output_path, topic_name, stop_event):
+    writer = rosbag2_py.SequentialWriter()
+    storage_options = rosbag2_py.StorageOptions(uri=output_path,storage_id='sqlite3')
+    converter_options = rosbag2_py.ConverterOptions(input_serialization_format='cdr',output_serialization_format='cdr')
+    writer.open(storage_options, converter_options)
+
+    topic_info = rosbag2_py.TopicMetadata(id=0,name=topic_name,type='sensor_msgs/msg/Imu',serialization_format='cdr')
+    writer.create_topic(topic_info)  
+
+    packet_count = 0
+
+    while not stop_event.is_set():
+        try:
+            serialized, timestamp_ns = msg_queue.get(timeout=1)
+            writer.write(topic_name, serialized, timestamp_ns)
+            packet_count += 1
+
+            #log every 100 
+            if packet_count % 100 == 0:
+                print(f"Recorded {packet_count} packets...")
+
+        except queue.Empty:
+            continue
+
+    print(f"Total packets recorded: {packet_count}")

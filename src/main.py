@@ -72,7 +72,7 @@ def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_out
         print(f"Recording to: {output_file}")
         
         # Stream directly to bag file
-        success = parser.to_bag(output_file, serial_port=serial_port)
+        success = parser.to_bag_multithreaded(output_file, serial_port=serial_port)
         
         serial_port.close()
         return success
