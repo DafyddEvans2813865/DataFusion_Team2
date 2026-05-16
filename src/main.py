@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 import sys
+import shutil
 from pathlib import Path
 from typing import Optional
 
 from radar.radar_parser_impl import RadarParser
 from imu.imu_parser_impl import IMUParser
 
+def remove_existing_bag(output_file) -> None:
+    output_path = Path(output_file)
+    if output_path.exists():
+        if output_path.is_dir():
+            shutil.rmtree(output_path)
+        else:
+            output_path.unlink()
+        print("Removed Previous existing .bag file")
 
 def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag") -> bool:
     print("\n" + "=" * 60)
@@ -41,6 +50,7 @@ def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag")
     try:
         import rosbag2_py
         print(f"\nCreating ROS2 bag file: {output_file}")
+        remove_existing_bag(output_file)
         if parser.to_bag(output_file):
             parser.inspect_bag(output_file)
             return True
@@ -65,6 +75,7 @@ def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_out
         import serial
         
         print(f"Opening serial port: {IMU_PORT} @ {IMU_BAUD} baud")
+        remove_existing_bag(output_file)
         serial_port = serial.Serial(IMU_PORT, IMU_BAUD, timeout=5) #5 sec time out 
         
         parser = IMUParser()
@@ -72,7 +83,7 @@ def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_out
         print(f"Recording to: {output_file}")
         
         # Stream directly to bag file
-        success = parser.to_bag_multithreaded(output_file, serial_port=serial_port)
+        success = parser.to_bag_multithreaded(output_file, topic_name="/imu/data", serial_port=serial_port)
         
         serial_port.close()
         return success
