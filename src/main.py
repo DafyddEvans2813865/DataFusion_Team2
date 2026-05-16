@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 import sys
+import shutil
 from pathlib import Path
 from typing import Optional
 
 from radar.radar_parser_impl import RadarParser
 from imu.imu_parser_impl import IMUParser
 
+def remove_existing_bag(output_file) -> None:
+    output_path = Path(output_file)
+    if output_path.exists():
+        if output_path.is_dir():
+            shutil.rmtree(output_path)
+        else:
+            output_path.unlink()
+        print("Removed Previous existing .bag file")
 
 def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag") -> bool:
     print("\n" + "=" * 60)
@@ -41,6 +50,7 @@ def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag")
     try:
         import rosbag2_py
         print(f"\nCreating ROS2 bag file: {output_file}")
+        remove_existing_bag(output_file)
         if parser.to_bag(output_file):
             parser.inspect_bag(output_file)
             return True
@@ -53,58 +63,40 @@ def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag")
         return False
 
 
-CAPTURE_DURATION = 20  # seconds
 
 
-def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_output.bag",
-                       csv_export: Optional[str] = None,
-                       duration: float = CAPTURE_DURATION) -> bool:
+
+def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_output.bag") -> bool:
     print("\n" + "=" * 60)
-    print("IMU DATA CONVERSION (A2 MODE)")
+    print("IMU DATA STREAMING TO BAG (A2 MODE)")
     print("=" * 60)
 
-    parser = IMUParser()
-
-    print(f"Capturing IMU data from {IMU_PORT} at {IMU_BAUD} baud for {duration}s ...")
-    points = parser.parse_binary_file(IMU_PORT, IMU_BAUD, duration=duration)
-    
-    if not points:
-        print("No IMU points parsed")
-        return False
-    
-    print(f"Parsed {len(points)} IMU data points")
-    
-    # Show time range and statistics
-    if points:
-        time_min = min(p.time for p in points)
-        time_max = max(p.time for p in points)
-        elapsed = time_max - time_min
-        print(f"Time range: {time_min:.2f}s to {time_max:.2f}s (duration: {elapsed:.2f}s)")
-        print(f"Sample rate: {len(points)/elapsed:.1f} Hz" if elapsed > 0 else "")
-    
-    # Export to CSV for verification if requested
-    if csv_export:
-        print(f"\nExporting parsed data to CSV for verification: {csv_export}")
-        if parser.to_csv(csv_export):
-            print(f"CSV verification export successful")
-        else:
-            print(f"CSV verification export failed")
-    
-    # Create bag file
     try:
-        import rosbag2_py
-        print(f"\nCreating ROS2 bag file: {output_file}")
-        if parser.to_bag(output_file):
-            parser.inspect_bag(output_file)
-            return True
+        import serial
+        
+        print(f"Opening serial port: {IMU_PORT} @ {IMU_BAUD} baud")
+        remove_existing_bag(output_file)
+        serial_port = serial.Serial(IMU_PORT, IMU_BAUD, timeout=5) #5 sec time out 
+        
+        parser = IMUParser()
+        
+        print(f"Recording to: {output_file}")
+        
+        # Stream directly to bag file
+        success = parser.to_bag_multithreaded(output_file, topic_name="/imu/data", serial_port=serial_port)
+        
+        serial_port.close()
+        return success
+        
+    except ImportError as e:
+        print(f"\nMissing package: {e}")
+        if "serial" in str(e).lower():
+            print("Install pyserial: pip install pyserial")
         else:
-            print("Failed to create IMU bag file")
-            return False
-    except ImportError:
-        print("\nROS2 not installed")
-        print("\nTo use bag file export, install ROS2:")
-        print("  macOS: https://docs.ros.org/en/humble/Installation/macOS-Install-Binary.html")
-        print("  Ubuntu: sudo apt install python3-rosbag2 python3-rclpy python3-geometry-msgs")
+            print("Install ROS2: https://docs.ros.org/en/humble/Installation/")
+        return False
+    except Exception as e:
+        print(f"Error: {e}")
         return False
 
 
@@ -120,27 +112,14 @@ def main():
     # IMU serial config
     IMU_PORT = '/dev/ttyUSB0'
     IMU_BAUD = 115200
-    imu_output = "imu_output.bag"
-    imu_csv_export = "tests/data/example/IMU_Test_Output.csv"  # CSV export for verification
     
-    results = {
-        'radar': False,
-        'imu': False
-    }
+    results = {'radar': False,'imu': False}
     
     # Convert radar data
-
     results['radar'] = convert_radar_to_bag(radar_input, radar_output)
 
-    
     # Capture IMU data over serial for CAPTURE_DURATION seconds, then write bag
-    results['imu'] = convert_imu_to_bag(
-        IMU_PORT,
-        IMU_BAUD,
-        imu_output,
-        csv_export=imu_csv_export,
-        duration=CAPTURE_DURATION,
-    )
+    results['imu'] = convert_imu_to_bag(IMU_PORT,IMU_BAUD)
     
     # Summary
     print("\n" + "=" * 60)
