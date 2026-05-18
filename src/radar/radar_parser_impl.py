@@ -52,6 +52,11 @@ FRAME_HEADER_SIZE = 40
 TLV_DETECTED_POINTS       = 1     # Cartesian: X, Y, Z, doppler (each float32)
 TLV_SIDE_INFO             = 7     # SNR + noise per point (each uint16)
 TLV_SPHERICAL_POINTS      = 1000  # Spherical: range, azimuth(rad), elev(rad), doppler
+TLV_TARGET_LIST           = 1010
+TLV_TARGET_INDEX          = 1011
+TLV_TARGET_HEIGHT         = 1012
+TLV_COMPRESSED_POINTS     = 1020
+TLV_PRESENCE              = 1021
  
  
 class RadarParser:
@@ -102,14 +107,17 @@ class RadarParser:
         idx = FRAME_HEADER_SIZE  # TLVs start immediately after the 40-byte header
  
         for _ in range(num_tlv):
-            if idx + 8 > len(packet):
-                break
- 
-            tlv_type   = u32(packet, idx)
+            tlv_type = u32(packet, idx)
             tlv_length = u32(packet, idx + 4)
+
+            # TI TLV length includes the 8-byte TLV header
+            if tlv_length < 8:
+                break
+
             payload_start = idx + 8
-            payload_end   = payload_start + tlv_length
- 
+            payload_length = tlv_length - 8
+            payload_end = payload_start + payload_length
+
             if payload_end > len(packet):
                 break
  
@@ -118,7 +126,7 @@ class RadarParser:
             # ----------------------------------------------------------------
             if tlv_type == TLV_DETECTED_POINTS:
                 bytes_per_point = 16  # 4 × float32
-                count = tlv_length // bytes_per_point
+                count = payload_length // bytes_per_point
                 p = payload_start
                 for _ in range(count):
                     x       = f32(packet, p)
@@ -149,7 +157,7 @@ class RadarParser:
             # ----------------------------------------------------------------
             elif tlv_type == TLV_SIDE_INFO:
                 bytes_per_point = 4  # 2 × uint16
-                count = tlv_length // bytes_per_point
+                count = payload_length // bytes_per_point
                 p = payload_start
                 for _ in range(count):
                     snr   = u16(packet, p)      # multiples of 0.1 dB
@@ -162,7 +170,7 @@ class RadarParser:
             # ----------------------------------------------------------------
             elif tlv_type == TLV_SPHERICAL_POINTS:
                 bytes_per_point = 16  # 4 × float32
-                count = tlv_length // bytes_per_point
+                count = payload_length // bytes_per_point
                 p = payload_start
                 for _ in range(count):
                     r       = f32(packet, p)
@@ -181,8 +189,61 @@ class RadarParser:
                         noise=0,
                     ))
                     p += bytes_per_point
+
+            # ----------------------------------------------------------------
+            # TLV 1020: Compressed Points
+            # ----------------------------------------------------------------
+            elif tlv_type == TLV_COMPRESSED_POINTS:
+
+                # Units header is 20 bytes
+                if payload_length < 20:
+                    idx += tlv_length
+                    continue
+
+                p = payload_start
+
+                elev_unit = f32(packet, p)
+                azimuth_unit = f32(packet, p + 4)
+                doppler_unit = f32(packet, p + 8)
+                range_unit = f32(packet, p + 12)
+                snr_unit = f32(packet, p + 16)
+
+                p += 20
+
+                bytes_per_point = 8
+                count = (payload_length - 20) // bytes_per_point
+
+                for _ in range(count):
+                    elevation = struct.unpack('<b', packet[p:p+1])[0]
+                    azimuth = struct.unpack('<b', packet[p+1:p+2])[0]
+                    doppler = struct.unpack('<h', packet[p+2:p+4])[0]
+                    rng = u16(packet, p + 4)
+                    snr = u16(packet, p + 6)
+
+                    elev = elevation * elev_unit
+                    angle = azimuth * azimuth_unit
+                    range_m = rng * range_unit
+                    doppler_ms = doppler * doppler_unit
+                    snr_db = snr * snr_unit
+
+                    points.append(RadarPoint(
+                        frame=frame_number,
+                        timestamp=timestamp,
+                        range=range_m,
+                        angle=angle,
+                        elev=elev,
+                        doppler=doppler_ms,
+                        snr=snr_db,
+                        noise=0,
+                    ))
+
+                    p += bytes_per_point
  
-            idx = payload_end  # advance past this TLV
+            idx += tlv_length
+
+            # Some TI demos pad packets to 32-byte boundaries
+            while idx % 32 != 0 and idx < len(packet):
+                idx += 1
  
         # Merge side-info (TLV 7) into the points parsed from TLV 1 / 1000.
         # The spec guarantees side-info entries are in the same order as points.
@@ -214,14 +275,17 @@ class RadarParser:
             if start == -1:
                 break
  
-            # Need at least the full 40-byte frame header
-            if len(buffer) < start + FRAME_HEADER_SIZE:
+            try:
+                pkt_len = u32(buffer, start + 12)
+            except Exception:
                 break
- 
-            pkt_len = u32(buffer, start + 12)
- 
+
             # Sanity-check: packet length must be at least the header size
-            if pkt_len < FRAME_HEADER_SIZE or len(buffer) < start + pkt_len:
+            if pkt_len <= FRAME_HEADER_SIZE:
+                buffer = buffer[start + 8:]
+                continue
+
+            if len(buffer) < start + pkt_len:
                 break
  
             packet = bytes(buffer[start:start + pkt_len])
