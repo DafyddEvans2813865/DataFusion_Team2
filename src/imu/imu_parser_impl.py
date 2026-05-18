@@ -25,15 +25,17 @@ except ImportError:
     rclpy = None
 
 
-class IMUParser:
+class IMUParser(Node):
     # IMU packet structure: [0x55 0x55][type(2)][length(1)][payload][checksum(2)]
     IMU_FMT = '<IdfffffffffffffffBBB'
     IMU_HEADER = b'\x55\x55'
     
     def __init__(self):
+        super.__init__("imu_parser")
         self.points: List[IMUPoint] = []
         self.imu_size = struct.calcsize(self.IMU_FMT)
         self.imu_fields = [ 'time_counter', 'time', 'qx', 'qy', 'qz', 'qw', 'x_accel', 'y_accel', 'z_accel','x_rate', 'y_rate', 'z_rate']
+        self.publisher=self.create_publisher(Imu, "/imu/data",10)
     
     # A2 packet constants
     A2_PACKET_TYPE = b'a2'
@@ -221,8 +223,6 @@ class IMUParser:
 
                 # Convert to ROS message
                 msg = self.to_imu_message(point)
-                #timestamp_ns = int(point.time * 1e9)
-                #serialized = serialize_message(msg)
 
                 # Put into writer queue
                 msg_queue.put(msg, timeout=1)
@@ -233,23 +233,13 @@ class IMUParser:
                 pass
 
     def _writer_worker(self, msg_queue, output_path, topic_name, stop_event):
-        """
-        writer = rosbag2_py.SequentialWriter()
-        storage_options = rosbag2_py.StorageOptions(uri=output_path,storage_id='sqlite3')
-        converter_options = rosbag2_py.ConverterOptions(input_serialization_format='cdr',output_serialization_format='cdr')
-        writer.open(storage_options, converter_options)
-
-        topic_info = rosbag2_py.TopicMetadata(id=0,name=topic_name,type='sensor_msgs/msg/Imu',serialization_format='cdr')
-        writer.create_topic(topic_info)  
-
         packet_count = 0
-"""
-        publisher=create_publisher(IMU, topic_name, 10)
-        while not stop_event.is_set():
+
+        while not stop_event.is_set() and rclpy.ok():
             try:
                 msg = msg_queue.get(timeout=1)
                 #writer.write(topic_name, serialized, timestamp_ns)
-                publisher.publish(msg)
+                self.publisher.publish(msg)
                 packet_count += 1
 
                 #log every 100 

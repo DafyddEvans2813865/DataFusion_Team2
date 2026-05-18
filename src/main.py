@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import shutil
+import rclpy
 from pathlib import Path
 from typing import Optional
 
@@ -78,6 +79,7 @@ def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_out
         remove_existing_bag(output_file)
         serial_port = serial.Serial(IMU_PORT, IMU_BAUD, timeout=5) #5 sec time out 
         
+        rclpy.init()
         parser = IMUParser()
         
         print(f"Recording to: {output_file}")
@@ -85,6 +87,7 @@ def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_out
         # Stream directly to bag file
         success = parser.to_bag_multithreaded(output_file, topic_name="/imu/data", serial_port=serial_port)
         
+        rclpy.shutdown()
         serial_port.close()
         return success
         
