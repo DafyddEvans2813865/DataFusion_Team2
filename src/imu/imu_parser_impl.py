@@ -221,11 +221,11 @@ class IMUParser:
 
                 # Convert to ROS message
                 msg = self.to_imu_message(point)
-                timestamp_ns = int(point.time * 1e9)
-                serialized = serialize_message(msg)
+                #timestamp_ns = int(point.time * 1e9)
+                #serialized = serialize_message(msg)
 
                 # Put into writer queue
-                msg_queue.put((serialized, timestamp_ns), timeout=1)
+                msg_queue.put(msg, timeout=1)
 
             except queue.Empty:
                 continue
@@ -233,6 +233,7 @@ class IMUParser:
                 pass
 
     def _writer_worker(self, msg_queue, output_path, topic_name, stop_event):
+        """
         writer = rosbag2_py.SequentialWriter()
         storage_options = rosbag2_py.StorageOptions(uri=output_path,storage_id='sqlite3')
         converter_options = rosbag2_py.ConverterOptions(input_serialization_format='cdr',output_serialization_format='cdr')
@@ -242,11 +243,13 @@ class IMUParser:
         writer.create_topic(topic_info)  
 
         packet_count = 0
-
+"""
+        publisher=create_publisher(IMU, topic_name, 10)
         while not stop_event.is_set():
             try:
-                serialized, timestamp_ns = msg_queue.get(timeout=1)
-                writer.write(topic_name, serialized, timestamp_ns)
+                msg = msg_queue.get(timeout=1)
+                #writer.write(topic_name, serialized, timestamp_ns)
+                publisher.publish(msg)
                 packet_count += 1
 
                 #log every 100 
