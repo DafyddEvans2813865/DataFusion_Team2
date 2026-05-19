@@ -2,6 +2,7 @@ import numpy as np
 import struct
 from pathlib import Path
 from typing import List, Optional
+from rclpy.node import Node
 
 try:
     import rosbag2_py
@@ -30,11 +31,13 @@ def f32(data, i):
     return struct.unpack('<f', data[i:i+4])[0]
 
 
-class RadarParser:
-    def __init__(self):
+class RadarParser(Node):
+    def __init__(self,topic_name):
+        super().__init__("radar_parser")
         self.points: List[RadarPoint] = []
         # Magic word for TI radar frame synchronization
         self.magic = bytes.fromhex('0201040306050807')
+        self.publisher=self.create_publisher(PointCloud2,topic_name,10)
 
     def parse_hex_text(self, hex_text_path: str) -> List[RadarPoint]:
         points = []
@@ -184,29 +187,6 @@ class RadarParser:
             return False
 
         try:
-            writer = rosbag2_py.SequentialWriter()
-
-            storage_options = rosbag2_py.StorageOptions(
-                uri=output_path,
-                storage_id='sqlite3'
-            )
-
-            converter_options = rosbag2_py.ConverterOptions(
-                input_serialization_format='cdr',
-                output_serialization_format='cdr'
-            )
-
-            writer.open(storage_options, converter_options)
-
-            topic_info = rosbag2_py.TopicMetadata(
-                id=0,
-                name=topic_name,
-                type='sensor_msgs/msg/PointCloud2',
-                serialization_format='cdr'
-            )
-
-            writer.create_topic(topic_info)
-
             # Group by frame
             frames = {}
             for point in points:
@@ -218,13 +198,8 @@ class RadarParser:
                 frame_points = frames[frame_num]
 
                 msg = self.to_point_cloud(frame_points)
-                if msg:
-                    timestamp_ns = int(frame_points[0].timestamp * 1e6)  # ms -> ns
-                    writer.write(
-                        topic_name,
-                        serialize_message(msg),
-                        timestamp_ns
-                    )
+                if msg and rclpy.ok():
+                    self.publisher.publish(msg)
 
             print(f" ROS2 bag file created: {output_path}")
             return True

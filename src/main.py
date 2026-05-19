@@ -17,11 +17,11 @@ def remove_existing_bag(output_file) -> None:
             output_path.unlink()
         print("Removed Previous existing .bag file")
 
-def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag") -> bool:
+def convert_radar_to_bag(input_file: str, topic_name: str) -> bool:
     print("\n" + "=" * 60)
     print("RADAR DATA CONVERSION")
     print("=" * 60)
-    parser = RadarParser()
+    parser = RadarParser(topic_name)
     
     if not Path(input_file).exists():
         print(f"Input file not found: {input_file}")
@@ -46,7 +46,7 @@ def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag")
     print(f"Frames: {len(frames)} (range: {min(frames.keys())}-{max(frames.keys())})")
     print(f"Samples per frame: avg={len(points)/len(frames):.1f}, "
           f"min={min(frames.values())}, max={max(frames.values())}")
-    
+    """
     # Create bag file
     try:
         import rosbag2_py
@@ -62,6 +62,7 @@ def convert_radar_to_bag(input_file: str, output_file: str = "radar_output.bag")
         print("\nROS2 not installed")
         print("\nTo use bag file export, install ROS2 (rosbag2_py):")
         return False
+        """
 
 
 
@@ -79,7 +80,6 @@ def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_out
         remove_existing_bag(output_file)
         serial_port = serial.Serial(IMU_PORT, IMU_BAUD, timeout=5) #5 sec time out 
         
-        rclpy.init()
         parser = IMUParser()
         
         print(f"Recording to: {output_file}")
@@ -87,7 +87,6 @@ def convert_imu_to_bag(IMU_PORT: str, IMU_BAUD: int, output_file: str = "imu_out
         # Stream directly to bag file
         success = parser.to_bag_multithreaded(output_file, topic_name="/imu/data", serial_port=serial_port)
         
-        rclpy.shutdown()
         serial_port.close()
         return success
         
@@ -110,20 +109,24 @@ def main():
     
     # Define input/output files Data 
     radar_input = "tests/data/example/Radar_Test_Data.txt"
-    radar_output = "radar_output.bag"
+    radar_topic_1="/radar/points1"
+    radar_topic_2="radar/points2"
     
     # IMU serial config
     IMU_PORT = '/dev/ttyUSB0'
     IMU_BAUD = 115200
     
-    results = {'radar': False,'imu': False}
+    results = {'radar1': False,'radar2': False,'imu': False}
     
+    rclpy.init()
     # Convert radar data
-    results['radar'] = convert_radar_to_bag(radar_input, radar_output)
+    results['radar1'] = convert_radar_to_bag(radar_input, radar_topic_1)
+    results['radar2'] = convert_radar_to_bag(radar_input, radar_topic_2)
 
     # Capture IMU data over serial for CAPTURE_DURATION seconds, then write bag
     results['imu'] = convert_imu_to_bag(IMU_PORT,IMU_BAUD)
-    
+    rclpy.shutdown()
+
     # Summary
     print("\n" + "=" * 60)
     print("CONVERSION SUMMARY")
